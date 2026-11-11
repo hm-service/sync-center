@@ -1,6 +1,8 @@
 package api
 
 import (
+	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"os"
@@ -79,18 +81,12 @@ func (s *Server) uiSnapshot(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, http.StatusNotFound, "snapshot not found", "snapshot not found")
 		return
 	}
-	manifest, err := core.Parse(snapshot.Manifest)
-	if err != nil {
-		s.logger.Error("parse manifest", "error", err)
-		httpx.Fail(w, http.StatusInternalServerError, "internal", "internal error")
-		return
-	}
-	httpx.JSON(w, http.StatusOK, snapshotJSON{
-		Seq:        snapshot.Seq,
-		CreatedAt:  snapshot.CreatedAt,
-		TotalBytes: snapshot.TotalBytes,
-		Manifest:   manifest,
-	})
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "{\"namespace\":%q,\"seq\":%d,\"createdAt\":%d,\"totalBytes\":%d,\"manifest\":",
+		namespace.Name, snapshot.Seq, snapshot.CreatedAt, snapshot.TotalBytes)
+	_, _ = io.WriteString(w, snapshot.Manifest)
+	_, _ = io.WriteString(w, "}\n")
 }
 
 func (s *Server) uiBlob(w http.ResponseWriter, r *http.Request) {

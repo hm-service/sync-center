@@ -10,7 +10,7 @@ data:
     DATA_DIR: "/data"
     MAX_API_CONCURRENCY: 128
     MAX_STATIC_CONCURRENCY: 64
-    GOMEMLIMIT: "128MiB"
+    GOMEMLIMIT: "200MiB"
 
 ---
 apiVersion: v1
@@ -83,7 +83,7 @@ spec:
               requests:
                   memory: 64Mi
               limits:
-                  memory: 256Mi
+                  memory: 512Mi
 
           livenessProbe:
               httpGet:

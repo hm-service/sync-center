@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -24,13 +25,6 @@ type snapshotMetaJSON struct {
 	Seq        int64 `json:"seq"`
 	CreatedAt  int64 `json:"createdAt"`
 	TotalBytes int64 `json:"totalBytes"`
-}
-
-type snapshotJSON struct {
-	Seq        int64         `json:"seq"`
-	CreatedAt  int64         `json:"createdAt"`
-	TotalBytes int64         `json:"totalBytes"`
-	Manifest   core.Manifest `json:"manifest"`
 }
 
 type snapshotRequest struct {
@@ -166,12 +160,7 @@ func (s *Server) createSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payload, total, err := core.Normalize(request.Manifest)
-	if err != nil {
-		httpx.Fail(w, http.StatusUnprocessableEntity, "invalid_manifest", err.Error())
-		return
-	}
-	manifest, err := core.Parse(payload)
+	payload, manifest, total, err := core.Normalize(request.Manifest)
 	if err != nil {
 		httpx.Fail(w, http.StatusUnprocessableEntity, "invalid_manifest", err.Error())
 		return
@@ -303,17 +292,12 @@ func (s *Server) metadata(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// writeSnapshot 直接把库里存的 manifest 原文拼进响应，避免解析成结构再序列化。
 func (s *Server) writeSnapshot(w http.ResponseWriter, snapshot *db.Snapshot) {
-	manifest, err := core.Parse(snapshot.Manifest)
-	if err != nil {
-		s.logger.Error("parse manifest", "seq", snapshot.Seq, "error", err)
-		httpx.Fail(w, http.StatusInternalServerError, "internal", "internal error")
-		return
-	}
-	httpx.JSON(w, http.StatusOK, snapshotJSON{
-		Seq:        snapshot.Seq,
-		CreatedAt:  snapshot.CreatedAt,
-		TotalBytes: snapshot.TotalBytes,
-		Manifest:   manifest,
-	})
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "{\"seq\":%d,\"createdAt\":%d,\"totalBytes\":%d,\"manifest\":",
+		snapshot.Seq, snapshot.CreatedAt, snapshot.TotalBytes)
+	_, _ = io.WriteString(w, snapshot.Manifest)
+	_, _ = io.WriteString(w, "}\n")
 }
