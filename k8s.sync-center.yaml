@@ -1,0 +1,118 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: env
+data:
+    HOST: "0.0.0.0"
+    PORT: "8080"
+    TZ: "Asia/Shanghai"
+    DATA_DIR: "/data"
+    MAX_API_CONCURRENCY: 128
+    MAX_STATIC_CONCURRENCY: 64
+    GOMEMLIMIT: "128MiB"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+    name: secrets
+type: Opaque
+stringData:
+    READYZ_TOKEN: "your_readyz_token"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: namespaces
+data:
+    config.yaml: |
+        namespaces:
+          - name: "default"
+            tokens:
+              - "REPLACE_WITH_RANDOM_TOKEN1:rw"
+              - "REPLACE_WITH_RANDOM_TOKEN2:r"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+    name: sync-center-data
+spec:
+    accessModes:
+        - ReadWriteOnce
+    resources:
+        requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Pod
+metadata:
+    name: sync-center
+    labels:
+        app: sync-center
+spec:
+    restartPolicy: Always
+    terminationGracePeriodSeconds: 30
+
+    containers:
+        - name: app
+          image: ghcr.io/hm-service/sync-center:latest
+          imagePullPolicy: Always
+
+          securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                  drop:
+                      - ALL
+
+          envFrom:
+              - configMapRef:
+                    name: env
+              - secretRef:
+                    name: secrets
+          ports:
+              - name: http
+                containerPort: 8080
+                protocol: TCP
+
+          resources:
+              requests:
+                  memory: 64Mi
+              limits:
+                  memory: 256Mi
+
+          livenessProbe:
+              httpGet:
+                  path: /livez
+                  port: http
+              initialDelaySeconds: 5
+              periodSeconds: 30
+              timeoutSeconds: 3
+              failureThreshold: 3
+
+          readinessProbe:
+              httpGet:
+                  path: /readyz?token=your_readyz_token
+                  port: http
+              initialDelaySeconds: 5
+              periodSeconds: 30
+              timeoutSeconds: 3
+              failureThreshold: 3
+
+          volumeMounts:
+              - name: data
+                mountPath: /data
+              - name: config
+                mountPath: /data/config.yaml
+                subPath: config.yaml
+    volumes:
+        - name: data
+          persistentVolumeClaim:
+              claimName: sync-center-data
+        - name: config
+          configMap:
+              name: namespaces

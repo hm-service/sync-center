@@ -1,0 +1,20 @@
+# 约定：本地 / 临时目录一律以 . 开头，一律不进构建上下文；frontend/ 的源码要进 ——
+#       前端阶段得靠它构建，构建产物（frontend/dist）则由该阶段自己生成。
+#
+# 这里排掉的路径若被 go:embed 引用（例如 docs/），镜像里就会缺文件、编译失败，
+#       到时候把对应行删掉。
+.*
+/frontend/node_modules/
+/frontend/dist/
+
+# 环境变量与日志
+*.log
+
+# 构建镜像用不到的文档与部署描述
+/docs/
+/README.md
+/DESIGN.md
+/AGENTS.md
+/k8s.*.yaml
+/*.kube
+/justfile

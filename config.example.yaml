@@ -1,0 +1,5 @@
+namespaces:
+  - name: "default"
+    tokens:
+      - "REPLACE_WITH_RANDOM_TOKEN1:rw"
+      - "REPLACE_WITH_RANDOM_TOKEN2:r"
