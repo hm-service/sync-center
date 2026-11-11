@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sync-center 面板设计备选</title>
+<style>
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font: 14px/1.6 system-ui, -apple-system, "Noto Sans CJK SC", "PingFang SC", sans-serif;
+  color: #0f172a;
+  background: #eef2f7;
+}
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 24px;
+  background: rgba(255, 255, 255, .92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid #dbe3ee;
+}
+.top h1 { margin: 0; font-size: 15px; }
+.top nav { display: flex; gap: 6px; margin-left: auto; }
+.top button {
+  padding: 6px 14px;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.top button.on { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }
+.stage { padding: 24px; }
+.view { display: none; }
+.view.on { display: block; }
+.hint { max-width: 1100px; margin: 0 auto 12px; color: #64748b; font-size: 13px; }
+.frame {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  height: 640px;
+  border: 1px solid #cfd9e6;
+  border-radius: 14px;
+  background: #fff;
+  overflow: hidden;
+  box-shadow: 0 18px 40px -24px rgba(15, 23, 42, .45);
+}
+.pad { padding: 12px; }
+.muted { color: #94a3b8; }
+.tiny { font-size: 11px; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+/* ---------- A. 工作台 ---------- */
+.a { display: grid; grid-template-columns: 190px 220px 1fr 1.3fr; gap: 1px; background: #e2e8f0; }
+.a > section { background: #fff; padding: 12px; overflow: auto; }
+.a h2 { margin: 0 0 10px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #64748b; }
+.a .item { padding: 6px 8px; border-radius: 6px; font-size: 12px; }
+.a .item small { display: block; color: #94a3b8; font-size: 10.5px; }
+.a .item.on { background: #eff6ff; color: #1d4ed8; }
+.a .file { display: flex; justify-content: space-between; padding: 3px 8px; border-radius: 5px; font-size: 12px; }
+.a .file.on { background: #eff6ff; }
+.a .dir { padding: 4px 6px; font-size: 12px; color: #334155; }
+.a .dir::before { content: "▸ "; color: #94a3b8; }
+.a pre { margin: 0; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; font: 11.5px/1.6 ui-monospace, Menlo, monospace; white-space: pre-wrap; }
+.a header { display: flex; align-items: baseline; gap: 10px; padding: 12px 16px; border-bottom: 1px solid #e2e8f0; }
+.a header h1 { margin: 0; font-size: 15px; }
+
+/* ---------- B. 主从 ---------- */
+.b { display: grid; grid-template-columns: 250px 1fr; }
+.b aside { border-right: 1px solid #e2e8f0; background: #fbfdff; padding: 16px 12px; overflow: auto; }
+.b aside h2 { margin: 0 0 8px; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: #94a3b8; }
+.b .ns { padding: 8px 10px; border-radius: 8px; font-size: 13px; margin-bottom: 2px; }
+.b .ns.on { background: #fff; box-shadow: 0 0 0 1px #dbe3ee; font-weight: 600; }
+.b .snap { padding: 6px 10px 6px 22px; border-radius: 6px; font-size: 12px; color: #475569; }
+.b .snap.on { background: #eff6ff; color: #1d4ed8; }
+.b main { display: grid; grid-template-rows: 1fr 210px; height: 100%; }
+.b .head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 6px; }
+.b .head h1 { margin: 0; font-size: 16px; }
+.b .tree { padding: 0 12px 12px; overflow: auto; }
+.b .tree .dir { padding: 5px 8px; font-size: 13px; color: #334155; }
+.b .tree .dir::before { content: "▾ "; color: #94a3b8; }
+.b .tree .file { padding: 5px 8px 5px 26px; border-radius: 7px; font-size: 13px; }
+.b .tree .file:hover { background: #f1f5f9; }
+.b .tree .file.on { background: #eff6ff; color: #1d4ed8; }
+.b .drop { border-top: 1px solid #e2e8f0; background: #fbfdff; padding: 14px 20px; overflow: auto; }
+.b .drop pre { margin: 0; font: 11.5px/1.7 ui-monospace, Menlo, monospace; color: #334155; white-space: pre-wrap; }
+
+/* ---------- C. 暗色 ---------- */
+.c { display: grid; grid-template-columns: 230px 1fr 320px; background: #0f172a; color: #cbd5e1; }
+.c aside { border-right: 1px solid #1e293b; padding: 14px 10px; overflow: auto; }
+.c aside h2 { margin: 0 0 8px; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: #64748b; }
+.c .ns { padding: 6px 9px; border-radius: 6px; font-size: 12.5px; color: #94a3b8; }
+.c .ns.on { background: #1e293b; color: #e2e8f0; }
+.c .snap { padding: 5px 9px 5px 20px; border-radius: 5px; font-size: 11.5px; color: #64748b; }
+.c .snap.on { color: #60a5fa; }
+.c main { overflow: auto; }
+.c .head { display: flex; align-items: baseline; gap: 10px; padding: 14px 18px 10px; border-bottom: 1px solid #1e293b; }
+.c .head h1 { margin: 0; font-size: 14px; color: #f1f5f9; }
+.c table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.c th { text-align: left; padding: 7px 18px; color: #64748b; font-weight: 500; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; border-bottom: 1px solid #1e293b; }
+.c td { padding: 6px 18px; border-bottom: 1px solid #16213a; color: #cbd5e1; }
+.c tr:hover td { background: #16213a; }
+.c tr.on td { background: #1e2b47; color: #e2e8f0; }
+.c td.size { color: #64748b; text-align: right; white-space: nowrap; }
+.c .side { border-left: 1px solid #1e293b; padding: 14px 16px; overflow: auto; }
+.c .side h2 { margin: 0 0 8px; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: #64748b; }
+.c .side pre { margin: 0; font: 11.5px/1.7 ui-monospace, Menlo, monospace; color: #94a3b8; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>sync-center 面板 · 设计备选</h1>
+  <nav>
+    <button class="on" data-target="a">A 工作台</button>
+    <button data-target="b">B 主从</button>
+    <button data-target="c">C 暗色表格</button>
+  </nav>
+</div>
+
+<div class="stage">
+  <p class="hint">三套用同一份假数据，只有布局、密度和配色不同。选一套我再落到 Vue 组件里。</p>
+
+  <!-- A -->
+  <section class="view on" data-view="a">
+    <div class="frame a">
+      <section>
+        <h2>命名空间</h2>
+        <div class="item on">default<small>更新于 2:30 AM</small></div>
+        <div class="item">work<small>更新于 3:18 AM</small></div>
+      </section>
+      <section>
+        <h2>快照</h2>
+        <div class="item on">seq 22<small>52.9 MB · 2:30 AM</small></div>
+        <div class="item">seq 21<small>52.9 MB · 2:22 AM</small></div>
+        <div class="item">seq 20<small>52.9 MB · 1:53 AM</small></div>
+        <div class="item">seq 19<small>52.9 MB · 1:28 AM</small></div>
+      </section>
+      <section>
+        <div class="row"><h2>文件 · 126</h2></div>
+        <div class="dir">cn_dicts</div>
+        <div class="file"><span>41448.dict.yaml</span><span class="muted tiny">378.2 KB</span></div>
+        <div class="file on"><span>base.dict.yaml</span><span class="muted tiny">15.9 MB</span></div>
+        <div class="file"><span>ext.dict.yaml</span><span class="muted tiny">11.4 MB</span></div>
+        <div class="dir">lua</div>
+        <div class="file"><span>autocap_filter.lua</span><span class="muted tiny">2.3 KB</span></div>
+      </section>
+      <section>
+        <h2>预览</h2>
+        <pre>name: luna_pinyin
+version: "1"
+sort: by_weight
+use_preset_vocabulary: true
+
+import_tables:
+  - cn_dicts/8105
+  - cn_dicts/base
+  - cn_dicts/ext</pre>
+      </section>
+    </div>
+  </section>
+
+  <!-- B -->
+  <section class="view" data-view="b">
+    <div class="frame b">
+      <aside>
+        <h2>命名空间</h2>
+        <div class="ns on">default</div>
+        <div class="snap on">seq 22</div>
+        <div class="snap">seq 21</div>
+        <div class="snap">seq 20</div>
+        <div class="snap">seq 19</div>
+        <div class="ns">work</div>
+      </aside>
+      <main>
+        <div>
+          <div class="head">
+            <h1>default · seq 22</h1>
+            <span class="muted tiny">52.9 MB · 126 个文件</span>
+          </div>
+          <div class="tree">
+            <div class="dir">cn_dicts</div>
+            <div class="file">41448.dict.yaml</div>
+            <div class="file on">base.dict.yaml</div>
+            <div class="file">ext.dict.yaml</div>
+            <div class="dir">lua</div>
+            <div class="file">autocap_filter.lua</div>
+          </div>
+        </div>
+        <div class="drop">
+          <pre>name: luna_pinyin
+version: "1"
+sort: by_weight
+use_preset_vocabulary: true
+
+import_tables:
+  - cn_dicts/8105
+  - cn_dicts/base</pre>
+        </div>
+      </main>
+    </div>
+  </section>
+
+  <!-- C -->
+  <section class="view" data-view="c">
+    <div class="frame c">
+      <aside>
+        <h2>default</h2>
+        <div class="snap on">seq 22 · 2:30</div>
+        <div class="snap">seq 21 · 2:22</div>
+        <div class="snap">seq 20 · 1:53</div>
+        <div class="ns" style="margin-top:14px">work</div>
+      </aside>
+      <main>
+        <div class="head"><h1>文件</h1><span class="tiny muted">126 项</span></div>
+        <table>
+          <thead><tr><th>路径</th><th style="text-align:right">大小</th></tr></thead>
+          <tbody>
+            <tr><td>cn_dicts/41448.dict.yaml</td><td class="size">378.2 KB</td></tr>
+            <tr class="on"><td>cn_dicts/base.dict.yaml</td><td class="size">15.9 MB</td></tr>
+            <tr><td>cn_dicts/ext.dict.yaml</td><td class="size">11.4 MB</td></tr>
+            <tr><td>lua/autocap_filter.lua</td><td class="size">2.3 KB</td></tr>
+          </tbody>
+        </table>
+      </main>
+      <div class="side">
+        <h2>预览</h2>
+        <pre>name: luna_pinyin
+version: "1"
+sort: by_weight
+use_pre
+set_vocabulary: true
+
+import_tables:
+  - cn_dicts/8105</pre>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+const buttons = document.querySelectorAll(".top button");
+buttons.forEach((button) => {
+  button.addEventListener("click", () => {
+    buttons.forEach((item) => item.classList.toggle("on", item === button));
+    document.querySelectorAll(".view").forEach((view) => {
+      view.classList.toggle("on", view.dataset.view === button.dataset.target);
+    });
+  });
+});
+</script>
+</body>
+</html>

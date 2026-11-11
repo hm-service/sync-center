@@ -1,5 +1,20 @@
 # ==========================================
-# 构建阶段：静态前端 + Go 二进制
+# 第一阶段：构建前端
+# ==========================================
+FROM --platform=$BUILDPLATFORM node:26.13.0-alpine AS frontend
+
+RUN npm install -g pnpm@11.28.5
+
+WORKDIR /build/frontend
+
+COPY frontend/package.json frontend/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+COPY frontend/ ./
+RUN pnpm build
+
+# ==========================================
+# 第二阶段：构建 Go 二进制
 # ==========================================
 FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS builder
 
@@ -19,19 +34,17 @@ COPY go.* ./
 RUN go mod download
 
 COPY . .
-RUN mkdir -p frontend/dist && cp frontend/index.html frontend/auth.html frontend/app.css frontend/app.js frontend/auth.js frontend/i18n.js frontend/dist/
+COPY --from=frontend /build/frontend/dist ./frontend/dist
 
 # -ldflags="-w -s"：移除调试信息与符号表，明显减小二进制
 # -trimpath 从编译后的可执行文件中移除所有本地文件系统路径，以生成可复现的构建结果
 RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-w -s" -trimpath -o app.bin .
 
 # ==========================================
-# 运行阶段
+# 第三阶段：运行
 # ==========================================
 FROM alpine:3
 
-# Podman 会把 kube 的 httpGet 存活探针翻译成 `curl -f <url> || exit 1` 在容器里执行，
-# 镜像里没有 curl 探针就恒失败，容器会被反复判 unhealthy 后重启。
 RUN apk --no-cache add ca-certificates curl tzdata
 
 WORKDIR /app

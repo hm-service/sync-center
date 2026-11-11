@@ -9,8 +9,8 @@ Go 实现，产物是单个静态二进制。协议与数据布局和 `../sync-c
 ## 构建
 
 ```bash
-just build        # 交叉编译 amd64 + arm64 到 .dist/
-just check        # go vet + go test
+just build        # 构建前端，交叉编译 amd64 + arm64 到 .dist/
+just check        # go vet + go test + 前端类型检查
 ```
 
 二进制用 `CGO_ENABLED=0` 构建，`ldd` 显示 `not a dynamic executable`。
@@ -30,6 +30,12 @@ AUTH_TOKEN=<面板口令> SESSION_SIGNING_KEY=<32 位以上随机串>
 ```
 
 访问 `/ui` 会跳转到 `/auth`，输入口令后建立 30 天会话。页面与错误消息支持中英文，由 `Accept-Language` 和浏览器的 `localStorage.lang` 决定。`/livez`、`/readyz` 供编排系统探测，`/readyz` 在 `READYZ_TOKEN` 非空时要求 `?token=`。
+
+## 前端
+
+面板是 Vue 3 + Vite + TypeScript，源码在 `frontend/`，产物落到 `frontend/dist` 并被 `go:embed` 编进二进制。
+
+`/auth` 与 `/ui` 返回同一份入口，登录后原地切换到面板视图，不刷新页面。语言切换在右上角，词典在 `src/i18n.ts`，用 `satisfies Record<string, Entry>` 约束，漏键或漏某一种语言都会让 `pnpm typecheck` 失败。
 
 ## 配置
 

@@ -15,10 +15,9 @@ DATA_DIR := env("DATA_DIR", justfile_directory() / ".data")
 default:
     @just --list
 
-# 把静态前端复制到 frontend/dist（供 go:embed 使用）
+# 安装依赖并构建前端到 frontend/dist
 frontend:
-    @mkdir -p frontend/dist
-    @cp frontend/index.html frontend/auth.html frontend/app.css frontend/app.js frontend/auth.js frontend/i18n.js frontend/dist/
+    cd frontend && pnpm install --frozen-lockfile && pnpm build
 
 # 造占位 frontend/dist/STUB，让 go:embed 能编译；占位版跑起来 / 是 404、/readyz 是 503
 frontend-stub:
@@ -37,8 +36,10 @@ build: frontend
     done
     ls -l {{ DIST }}
 
-# 提交前跑一遍：Go 的 vet + test
+# 提交前跑一遍：Go 的 vet + test，加前端的类型检查
 check: vet test
+    cd frontend && pnpm install --frozen-lockfile
+    cd frontend && pnpm typecheck
 
 # 跑全部测试（没有前端产物就先造占位，Go 的测试不需要真前端）
 test: frontend-stub

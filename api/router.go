@@ -111,18 +111,13 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) site(w http.ResponseWriter, r *http.Request) {
 	switch {
-	case r.URL.Path == "/auth":
+	// 单页应用：/auth 与 /ui 返回同一份入口，由前端按路径决定渲染哪个视图
+	case r.URL.Path == "/auth" || r.URL.Path == "/" || r.URL.Path == "/ui":
 		if !allowRead(r.Method) {
 			s.methodNotAllowed("GET, HEAD")(w, r)
 			return
 		}
-		s.page(w, r, "auth.html")
-	case r.URL.Path == "/" || r.URL.Path == "/ui":
-		if !allowRead(r.Method) {
-			s.methodNotAllowed("GET, HEAD")(w, r)
-			return
-		}
-		if !s.authenticated(r) {
+		if r.URL.Path != "/auth" && !s.authenticated(r) {
 			http.Redirect(w, r, "/auth", http.StatusFound)
 			return
 		}
@@ -132,7 +127,8 @@ func (s *Server) site(w http.ResponseWriter, r *http.Request) {
 			s.methodNotAllowed("GET, HEAD")(w, r)
 			return
 		}
-		http.StripPrefix("/assets/", http.FileServer(http.FS(s.static))).ServeHTTP(w, r)
+		// Vite 的产物在 dist/assets/ 下，前缀与目录同名，不需要 StripPrefix
+		http.FileServer(http.FS(s.static)).ServeHTTP(w, r)
 	default:
 		s.notFound(w, r)
 	}

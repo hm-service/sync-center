@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sync-center 前端方案对比</title>
+<style>
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font: 15px/1.7 system-ui, -apple-system, "Noto Sans CJK SC", "PingFang SC", sans-serif;
+  color: #0f172a;
+  background: #f8fafc;
+}
+.wrap { max-width: 960px; margin: 0 auto; padding: 48px 24px 64px; }
+header h1 { margin: 0 0 6px; font-size: 26px; letter-spacing: -.01em; }
+header p { margin: 0 0 32px; color: #64748b; }
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 40px; }
+.card {
+  padding: 20px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+.card.pick { border-color: #93c5fd; box-shadow: 0 0 0 3px #dbeafe; }
+.card h2 { margin: 0 0 4px; font-size: 16px; }
+.card .tag {
+  display: inline-block;
+  margin-bottom: 10px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 12px;
+}
+.card.pick .tag { background: #dbeafe; color: #1d4ed8; }
+.card p { margin: 0 0 10px; font-size: 13px; color: #475569; }
+.card ul { margin: 0; padding-left: 18px; font-size: 13px; color: #334155; }
+.card li { margin-bottom: 4px; }
+table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
+th, td { padding: 10px 14px; text-align: left; font-size: 13px; border-bottom: 1px solid #e2e8f0; }
+th { background: #f8fafc; color: #475569; font-weight: 600; }
+tr:last-child td { border-bottom: none; }
+td.yes { color: #15803d; }
+td.no { color: #b91c1c; }
+h3 { margin: 40px 0 12px; font-size: 16px; }
+pre {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-x: auto;
+}
+.note { color: #64748b; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>sync-center 前端方案对比</h1>
+  <p>面板要展示的内容很固定：命名空间、快照、文件树、预览。差别只在用什么方式组织这几块，以及文案怎么保证不漏。</p>
+</header>
+
+<div class="cards">
+  <div class="card">
+    <span class="tag">现状</span>
+    <h2>A. 原生 JS</h2>
+    <p>一个 index.html 加几个 js 文件，手写词典和 DOM 渲染。</p>
+    <ul>
+      <li>零依赖，产物就是几个静态文件</li>
+      <li>i18n 靠约定，漏配只能在界面上发现</li>
+      <li>文案一多，DOM 拼装会很啰嗦</li>
+    </ul>
+  </div>
+
+  <div class="card pick">
+    <span class="tag">推荐</span>
+    <h2>B. Vue + Vite + TS</h2>
+    <p>组件化，词典带类型，构建产物仍然是一组静态文件，照旧 go:embed。</p>
+    <ul>
+      <li>词典类型化，漏 key 或漏语言在 typecheck 阶段就报错</li>
+      <li>语言切换、响应式渲染都是框架内置能力</li>
+      <li>代价是多一套 node 构建链</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <span class="tag">备选</span>
+    <h2>C. Go 模板</h2>
+    <p>用 html/template 在服务端渲染，前端不写 JS。</p>
+    <ul>
+      <li>没有构建步骤，二进制度更小</li>
+      <li>交互（树展开、预览切换）要靠整页刷新或少量 JS</li>
+      <li>i18n 和后端共用一套词典，但前端仍要写内联脚本</li>
+    </ul>
+  </div>
+</div>
+
+<h3>逐项对比</h3>
+<table>
+  <thead>
+    <tr><th>维度</th><th>A. 原生 JS</th><th>B. Vue + Vite + TS</th><th>C. Go 模板</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>漏配文案能否在构建期发现</td><td class="no">不能</td><td class="yes">能，typecheck 报错</td><td class="no">不能</td></tr>
+    <tr><td>语言切换</td><td>手写重渲染</td><td class="yes">响应式，改一个 ref</td><td>整页刷新</td></tr>
+    <tr><td>文件树 / 预览交互</td><td>手写 DOM</td><td class="yes">组件 + 模板</td><td>需要额外 JS</td></tr>
+    <tr><td>构建产物</td><td>3 个静态文件</td><td>带 hash 的静态文件</td><td>无</td></tr>
+    <tr><td>新增依赖</td><td class="yes">无</td><td>vue / vite / typescript</td><td class="yes">无</td></tr>
+    <tr><td>维护成本</td><td>随文案增长上升</td><td class="yes">稳定</td><td>交互一复杂就上升</td></tr>
+  </tbody>
+</table>
+
+<h3>为什么选 B</h3>
+<p class="note">这个面板的用户可见文案已经接近 40 条、两种语言，靠“漏了会显示键名”来兜底只在开发时有效，上线后就是用户看到 <code>ui.title</code>。把词典放进 TypeScript，让 <code>t()</code> 的参数类型是 <code>keyof typeof messages</code>，漏配直接编译不过，这是 A 和 C 都给不了的。</p>
+<p class="note">构建产物仍然落到 <code>frontend/dist</code>，被 <code>go:embed</code> 编进二进制，部署形态不变。</p>
+
+<h3>词典的形状</h3>
+<pre>const messages = {
+  "ui.title": { zh: "sync-center", en: "sync-center" },
+  "ui.updated-at": { zh: "更新于 {time}", en: "updated {time}" },
+} as const;
+
+type Key = keyof typeof messages;
+
+function t(key: Key, params?: Record&lt;string, string | number&gt;): string {
+  // 缺失 key 是类型错误，缺某一列也是类型错误
+}</pre>
+
+<h3>迁移代价</h3>
+<p class="note">后端只改一处：<code>/auth</code>、<code>/ui</code>、<code>/</code> 都返回同一份 <code>index.html</code>，由前端根据路径决定渲染登录页还是面板。API 契约、路由、鉴权都不动。</p>
+</div>
+</body>
+</html>
