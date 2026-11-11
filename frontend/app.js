@@ -6,7 +6,7 @@ async function fetchOrLogin(path) {
   const response = await fetch(path);
   if (response.status === 401) {
     location.href = "/auth";
-    throw new Error("需要登录");
+    throw new Error(I18N.t("ui.need-login"));
   }
   return response;
 }
@@ -24,7 +24,7 @@ function formatSize(bytes) {
 }
 
 function formatTime(seconds) {
-  return new Date(seconds * 1000).toLocaleString();
+  return new Date(seconds * 1000).toLocaleString(I18N.lang === "zh" ? "zh-CN" : "en-US");
 }
 
 function emptyBox(box, message) {
@@ -40,7 +40,7 @@ async function loadNamespaces() {
   const box = el("namespaces");
   box.innerHTML = "";
   if (!rows.length) {
-    emptyBox(box, "没有 namespace");
+    emptyBox(box, I18N.t("ui.no-namespaces"));
     return;
   }
   rows.forEach((row) => {
@@ -48,7 +48,7 @@ async function loadNamespaces() {
     button.dataset.name = row.name;
     button.textContent = row.name;
     const small = document.createElement("small");
-    small.textContent = "更新于 " + formatTime(row.updatedAt);
+    small.textContent = I18N.t("ui.updated-at", { time: formatTime(row.updatedAt) });
     button.appendChild(small);
     button.onclick = () => selectNamespace(row.name, button);
     box.appendChild(button);
@@ -61,14 +61,14 @@ async function selectNamespace(name, button) {
   state.files = [];
   document.querySelectorAll("#namespaces button").forEach((b) => b.classList.remove("active"));
   button.classList.add("active");
-  emptyBox(el("files"), "先选一个 snapshot");
-  emptyBox(el("preview"), "点一个文件查看");
+  emptyBox(el("files"), I18N.t("ui.select-snapshot"));
+  emptyBox(el("preview"), I18N.t("ui.click-file"));
 
   const data = await api("/ui/api/namespaces/" + encodeURIComponent(name) + "/snapshots?limit=20");
   const box = el("snapshots");
   box.innerHTML = "";
   if (!data.snapshots.length) {
-    emptyBox(box, "没有快照");
+    emptyBox(box, I18N.t("ui.no-snapshots"));
     return;
   }
   data.snapshots.forEach((row) => {
@@ -87,7 +87,7 @@ async function selectSnapshot(seq, button) {
   state.seq = seq;
   document.querySelectorAll("#snapshots button").forEach((b) => b.classList.remove("active"));
   button.classList.add("active");
-  emptyBox(el("preview"), "点一个文件查看");
+  emptyBox(el("preview"), I18N.t("ui.click-file"));
 
   const data = await api("/ui/api/namespaces/" + encodeURIComponent(state.namespace) + "/snapshots/" + seq);
   state.files = data.manifest.files;
@@ -159,11 +159,12 @@ function renderFiles(data) {
   box.innerHTML = "";
   const meta = document.createElement("div");
   meta.className = "meta";
-  meta.textContent = "seq " + data.seq + " · " + formatTime(data.createdAt) + " · " + data.manifest.files.length + " 个文件";
+  meta.textContent = "seq " + data.seq + " · " + formatTime(data.createdAt) + " · " +
+    I18N.t("ui.file-count", { count: data.manifest.files.length });
   box.appendChild(meta);
 
   if (!data.manifest.files.length) {
-    emptyBox(box, "空快照");
+    emptyBox(box, I18N.t("ui.empty-snapshot"));
     return;
   }
 
@@ -193,10 +194,10 @@ async function previewFile(file, row) {
   if (file.size > PREVIEW_LIMIT) {
     const note = document.createElement("p");
     note.className = "meta";
-    note.textContent = formatSize(file.size) + " · 超过 256 KB，不预览";
+    note.textContent = I18N.t("ui.preview-too-large", { size: formatSize(file.size) });
     const link = document.createElement("a");
     link.href = url;
-    link.textContent = "下载 " + file.path;
+    link.textContent = I18N.t("ui.download", { path: file.path });
     box.appendChild(note);
     box.appendChild(link);
     return;
@@ -211,10 +212,10 @@ async function previewFile(file, row) {
   } else {
     const link = document.createElement("a");
     link.href = url;
-    link.textContent = "下载 " + file.path;
+    link.textContent = I18N.t("ui.download", { path: file.path });
     const size = document.createElement("p");
     size.className = "meta";
-    size.textContent = formatSize(file.size) + " · 二进制文件";
+    size.textContent = I18N.t("ui.binary-file", { size: formatSize(file.size) });
     box.appendChild(size);
     box.appendChild(link);
   }
@@ -246,6 +247,7 @@ async function boot() {
   if (row) await previewFile(file, row);
 }
 
-boot().catch((error) => {
-  emptyBox(el("namespaces"), error.message);
+I18N.apply();
+boot().catch(() => {
+  emptyBox(el("namespaces"), I18N.t("ui.load-failed"));
 });

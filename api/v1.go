@@ -40,7 +40,7 @@ func (s *Server) createLease(w http.ResponseWriter, r *http.Request) {
 	}
 	lease, ok := s.app.Leases.Acquire(p.NamespaceID)
 	if !ok {
-		httpx.Fail(w, http.StatusLocked, "leased", "namespace already has an active lease")
+		s.fail(w, r, http.StatusLocked, "leased", "error.leased")
 		return
 	}
 	httpx.JSON(w, http.StatusCreated, map[string]any{
@@ -56,7 +56,7 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	lease, ok := s.app.Leases.Heartbeat(r.PathValue("id"), p.NamespaceID)
 	if !ok {
-		httpx.Fail(w, http.StatusLocked, "lease_not_found", "lease is absent or expired")
+		s.fail(w, r, http.StatusLocked, "lease_not_found", "error.lease-not-found")
 		return
 	}
 	httpx.JSON(w, http.StatusOK, map[string]any{"expiresAt": lease.ExpiresAt.Unix()})
@@ -68,7 +68,7 @@ func (s *Server) releaseLease(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.app.Leases.Release(r.PathValue("id"), p.NamespaceID) {
-		httpx.Fail(w, http.StatusLocked, "lease_not_found", "lease is absent or expired")
+		s.fail(w, r, http.StatusLocked, "lease_not_found", "error.lease-not-found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -80,7 +80,7 @@ func (s *Server) putBlob(w http.ResponseWriter, r *http.Request) {
 	}
 	hash := r.PathValue("hash")
 	if !core.IsHash(hash) {
-		httpx.Fail(w, http.StatusUnprocessableEntity, "invalid_digest", "digest must be 64 lowercase hex characters")
+		s.fail(w, r, http.StatusUnprocessableEntity, "invalid_digest", "error.invalid-digest")
 		return
 	}
 	if _, exists := s.app.Blobs.Stat(hash); exists {
@@ -93,12 +93,12 @@ func (s *Server) putBlob(w http.ResponseWriter, r *http.Request) {
 	_, err := s.app.Blobs.Write(hash, r.Body)
 	switch {
 	case errors.Is(err, core.ErrBlobMismatch):
-		httpx.Fail(w, http.StatusUnprocessableEntity, "digest_mismatch", "content does not match digest")
+		s.fail(w, r, http.StatusUnprocessableEntity, "digest_mismatch", "error.digest-mismatch")
 	case errors.Is(err, core.ErrBlobTooLarge):
-		httpx.Fail(w, http.StatusRequestEntityTooLarge, "too_large", "blob exceeds size limit")
+		s.fail(w, r, http.StatusRequestEntityTooLarge, "too_large", "error.too-large")
 	case err != nil:
 		s.logger.Error("write blob", "hash", hash, "error", err)
-		httpx.Fail(w, http.StatusInternalServerError, "internal", "internal error")
+		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
 	default:
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -110,12 +110,12 @@ func (s *Server) headBlob(w http.ResponseWriter, r *http.Request) {
 	}
 	hash := r.PathValue("hash")
 	if !core.IsHash(hash) {
-		httpx.Fail(w, http.StatusUnprocessableEntity, "invalid_digest", "digest must be 64 lowercase hex characters")
+		s.fail(w, r, http.StatusUnprocessableEntity, "invalid_digest", "error.invalid-digest")
 		return
 	}
 	size, exists := s.app.Blobs.Stat(hash)
 	if !exists {
-		httpx.Fail(w, http.StatusNotFound, "not_found", "blob does not exist")
+		s.fail(w, r, http.StatusNotFound, "not_found", "error.blob-not-found")
 		return
 	}
 	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
@@ -128,12 +128,12 @@ func (s *Server) getBlob(w http.ResponseWriter, r *http.Request) {
 	}
 	hash := r.PathValue("hash")
 	if !core.IsHash(hash) {
-		httpx.Fail(w, http.StatusUnprocessableEntity, "invalid_digest", "digest must be 64 lowercase hex characters")
+		s.fail(w, r, http.StatusUnprocessableEntity, "invalid_digest", "error.invalid-digest")
 		return
 	}
 	path := s.app.Blobs.Path(hash)
 	if _, err := os.Stat(path); err != nil {
-		httpx.Fail(w, http.StatusNotFound, "not_found", "blob does not exist")
+		s.fail(w, r, http.StatusNotFound, "not_found", "error.blob-not-found")
 		return
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
@@ -148,31 +148,31 @@ func (s *Server) createSnapshot(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSnapshotBody)
 	var request snapshotRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		httpx.Fail(w, http.StatusUnprocessableEntity, "invalid_body", "request body is not valid JSON")
+		s.fail(w, r, http.StatusUnprocessableEntity, "invalid_body", "error.invalid-body")
 		return
 	}
 	if request.LeaseID == "" {
-		httpx.Fail(w, http.StatusUnprocessableEntity, "invalid_body", "leaseId is required")
+		s.fail(w, r, http.StatusUnprocessableEntity, "invalid_body", "error.lease-id-required")
 		return
 	}
 	if _, held := s.app.Leases.Peek(request.LeaseID, p.NamespaceID); !held {
-		httpx.Fail(w, http.StatusLocked, "lease_required", "an active lease is required")
+		s.fail(w, r, http.StatusLocked, "lease_required", "error.lease-required")
 		return
 	}
 
 	payload, manifest, total, err := core.Normalize(request.Manifest)
 	if err != nil {
-		httpx.Fail(w, http.StatusUnprocessableEntity, "invalid_manifest", err.Error())
+		s.fail(w, r, http.StatusUnprocessableEntity, "invalid_manifest", "error.invalid-manifest", err.Error())
 		return
 	}
 	for _, entry := range manifest.Files {
 		size, exists := s.app.Blobs.Stat(entry.Hash)
 		if !exists {
-			httpx.Fail(w, http.StatusUnprocessableEntity, "missing_blob", entry.Hash)
+			s.fail(w, r, http.StatusUnprocessableEntity, "missing_blob", "error.missing-blob", entry.Hash)
 			return
 		}
 		if size != entry.Size {
-			httpx.Fail(w, http.StatusUnprocessableEntity, "blob_size_mismatch", entry.Hash)
+			s.fail(w, r, http.StatusUnprocessableEntity, "blob_size_mismatch", "error.blob-size-mismatch", entry.Hash)
 			return
 		}
 	}
@@ -181,12 +181,12 @@ func (s *Server) createSnapshot(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, db.ErrConflict) {
 		// parent 已过期，本次提交注定失败；释放租约让客户端重新拉取后立即重试
 		s.app.Leases.Release(request.LeaseID, p.NamespaceID)
-		httpx.Fail(w, http.StatusConflict, "conflict", "parent does not match head")
+		s.fail(w, r, http.StatusConflict, "conflict", "error.conflict")
 		return
 	}
 	if err != nil {
 		s.logger.Error("commit snapshot", "error", err)
-		httpx.Fail(w, http.StatusInternalServerError, "internal", "internal error")
+		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
 		return
 	}
 	s.app.Leases.Release(request.LeaseID, p.NamespaceID)
@@ -201,11 +201,11 @@ func (s *Server) latestSnapshot(w http.ResponseWriter, r *http.Request) {
 	snapshot, err := s.app.DB.Head(p.NamespaceID)
 	if err != nil {
 		s.logger.Error("read head", "error", err)
-		httpx.Fail(w, http.StatusInternalServerError, "internal", "internal error")
+		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
 		return
 	}
 	if snapshot == nil {
-		httpx.Fail(w, http.StatusNotFound, "not_found", "no snapshot yet")
+		s.fail(w, r, http.StatusNotFound, "not_found", "error.no-snapshot")
 		return
 	}
 	s.writeSnapshot(w, snapshot)
@@ -220,7 +220,7 @@ func (s *Server) listSnapshots(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed < 1 || parsed > maxPageSize {
-			httpx.Fail(w, http.StatusUnprocessableEntity, "invalid_limit", "limit must be between 1 and 100")
+			s.fail(w, r, http.StatusUnprocessableEntity, "invalid_limit", "error.invalid-limit")
 			return
 		}
 		limit = parsed
@@ -228,7 +228,7 @@ func (s *Server) listSnapshots(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.app.DB.Snapshots(p.NamespaceID, limit)
 	if err != nil {
 		s.logger.Error("list snapshots", "error", err)
-		httpx.Fail(w, http.StatusInternalServerError, "internal", "internal error")
+		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
 		return
 	}
 	items := make([]snapshotMetaJSON, 0, len(rows))
@@ -250,17 +250,17 @@ func (s *Server) getSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	seq, err := strconv.ParseInt(value, 10, 64)
 	if err != nil || seq < 1 {
-		httpx.Fail(w, http.StatusNotFound, "not_found", "snapshot does not exist")
+		s.fail(w, r, http.StatusNotFound, "not_found", "error.snapshot-not-found")
 		return
 	}
 	snapshot, err := s.app.DB.Snapshot(p.NamespaceID, seq)
 	if err != nil {
 		s.logger.Error("read snapshot", "error", err)
-		httpx.Fail(w, http.StatusInternalServerError, "internal", "internal error")
+		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
 		return
 	}
 	if snapshot == nil {
-		httpx.Fail(w, http.StatusNotFound, "not_found", "snapshot does not exist")
+		s.fail(w, r, http.StatusNotFound, "not_found", "error.snapshot-not-found")
 		return
 	}
 	s.writeSnapshot(w, snapshot)
@@ -274,7 +274,7 @@ func (s *Server) metadata(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.app.DB.Snapshots(p.NamespaceID, metadataPage)
 	if err != nil {
 		s.logger.Error("read metadata", "error", err)
-		httpx.Fail(w, http.StatusInternalServerError, "internal", "internal error")
+		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
 		return
 	}
 	mode := "r"

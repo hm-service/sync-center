@@ -29,7 +29,7 @@ DATA_DIR=$PWD/.data PORT=18080 ./.dist/app-linux-amd64
 AUTH_TOKEN=<面板口令> SESSION_SIGNING_KEY=<32 位以上随机串>
 ```
 
-访问 `/ui` 会跳转到 `/auth`，输入口令后建立 30 天会话。`/livez`、`/readyz` 供编排系统探测，`/readyz` 在 `READYZ_TOKEN` 非空时要求 `?token=`。
+访问 `/ui` 会跳转到 `/auth`，输入口令后建立 30 天会话。页面与错误消息支持中英文，由 `Accept-Language` 和浏览器的 `localStorage.lang` 决定。`/livez`、`/readyz` 供编排系统探测，`/readyz` 在 `READYZ_TOKEN` 非空时要求 `?token=`。
 
 ## 配置
 

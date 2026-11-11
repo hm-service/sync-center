@@ -22,21 +22,21 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
 	var request authRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		httpx.Fail(w, http.StatusBadRequest, "invalid_body", "request body is not valid JSON")
+		s.fail(w, r, http.StatusBadRequest, "invalid_body", "error.invalid-body")
 		return
 	}
 
 	valid := request.Token != "" && core.VerifySecret(s.app.Config.AuthHash, request.Token)
 	s.waitVerification(started)
 	if !valid {
-		httpx.Fail(w, http.StatusUnauthorized, "unauthorized", "invalid token")
+		s.fail(w, r, http.StatusUnauthorized, "unauthorized", "error.invalid-token")
 		return
 	}
 
 	token, err := s.app.Sessions.Issue()
 	if err != nil {
 		s.logger.Error("issue session", "error", err)
-		httpx.Fail(w, http.StatusInternalServerError, "internal", "internal error")
+		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
@@ -82,7 +82,7 @@ func (s *Server) requireSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !s.authenticated(r) {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="sync-center"`)
-			httpx.Fail(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+			s.fail(w, r, http.StatusUnauthorized, "unauthorized", "error.auth-required")
 			return
 		}
 		next.ServeHTTP(w, r)

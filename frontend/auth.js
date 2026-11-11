@@ -1,3 +1,5 @@
+I18N.apply();
+
 const form = document.getElementById("login");
 const input = document.getElementById("token");
 const note = document.getElementById("note");
@@ -14,16 +16,16 @@ form.addEventListener("submit", async (event) => {
       body: JSON.stringify({ token: input.value }),
     });
   } catch (error) {
-    note.textContent = "无法连接服务";
+    note.textContent = I18N.t("ui.login-offline");
     return;
   }
 
   if (response.status === 401) {
-    note.textContent = "口令不正确";
+    note.textContent = I18N.t("ui.login-invalid");
     return;
   }
   if (!response.ok) {
-    note.textContent = "登录失败：" + response.status;
+    note.textContent = I18N.t("ui.login-failed", { status: response.status });
     return;
   }
   location.href = "/ui";

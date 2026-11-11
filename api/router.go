@@ -11,6 +11,7 @@ import (
 	"sync-center/app"
 	"sync-center/core"
 	"sync-center/httpx"
+	"sync-center/i18n"
 )
 
 const contentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
@@ -97,12 +98,12 @@ func (s *Server) livez(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 	if s.app.Config.ReadyToken != "" && r.URL.Query().Get("token") != s.app.Config.ReadyToken {
-		httpx.Fail(w, http.StatusUnauthorized, "unauthorized", "invalid readyz token")
+		s.fail(w, r, http.StatusUnauthorized, "unauthorized", "error.readyz-token")
 		return
 	}
 	if err := s.app.DB.Probe(); err != nil {
 		s.logger.Error("readyz probe failed", "error", err)
-		httpx.Fail(w, http.StatusServiceUnavailable, "unavailable", "service unavailable")
+		s.fail(w, r, http.StatusServiceUnavailable, "unavailable", "error.unavailable")
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -145,7 +146,7 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request, name string) {
 	index, err := fs.ReadFile(s.static, name)
 	if err != nil {
 		s.logger.Error("read index", "error", err)
-		httpx.Fail(w, http.StatusInternalServerError, "internal", "internal error")
+		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -153,15 +154,24 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request, name string) {
 	_, _ = w.Write(index)
 }
 
+// fail 输出本地化后的错误；错误码保持英文，供客户端做分支判断。
+func (s *Server) fail(w http.ResponseWriter, r *http.Request, status int, code, key string, args ...any) {
+	httpx.Fail(w, status, code, i18n.T(language(r), key, args...))
+}
+
+func language(r *http.Request) string {
+	return i18n.Parse(r.Header.Get("Accept-Language"))
+}
+
 func (s *Server) methodNotAllowed(allow string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", allow)
-		httpx.Fail(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		s.fail(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "error.method-not-allowed")
 	}
 }
 
 func (s *Server) notFound(w http.ResponseWriter, r *http.Request) {
-	httpx.Fail(w, http.StatusNotFound, "not_found", "not found")
+	s.fail(w, r, http.StatusNotFound, "not_found", "error.not-found")
 }
 
 func (s *Server) protected(handler http.HandlerFunc) http.Handler {
@@ -201,11 +211,11 @@ var (
 func (s *Server) require(w http.ResponseWriter, r *http.Request, write bool) (principal, bool) {
 	p, err := s.principal(r)
 	if err != nil {
-		httpx.Fail(w, http.StatusUnauthorized, "unauthorized", "missing or invalid token")
+		s.fail(w, r, http.StatusUnauthorized, "unauthorized", "error.unauthorized")
 		return principal{}, false
 	}
 	if write && !p.CanWrite {
-		httpx.Fail(w, http.StatusForbidden, "forbidden", "write permission required")
+		s.fail(w, r, http.StatusForbidden, "forbidden", "error.forbidden")
 		return principal{}, false
 	}
 	return p, true
@@ -256,6 +266,8 @@ func (s *Server) secure(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Content-Security-Policy", contentSecurityPolicy)
+		w.Header().Set("Content-Language", language(r))
+		w.Header().Add("Vary", "Accept-Language")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -265,7 +277,7 @@ func (s *Server) recover(next http.Handler) http.Handler {
 		defer func() {
 			if value := recover(); value != nil {
 				s.logger.Error("panic", "path", r.URL.Path, "value", value)
-				httpx.Fail(w, http.StatusInternalServerError, "internal", "internal error")
+				s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
 			}
 		}()
 		next.ServeHTTP(w, r)

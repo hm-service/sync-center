@@ -111,6 +111,8 @@ blob 不压缩。传输压缩由 HTTP 层处理。
 
 请求体与响应体的字段统一使用 camelCase；数据库列名仍为 snake_case，不对外暴露。
 
+用户可见文案支持简体中文与英文。错误码保持英文，`message` 按 `Accept-Language` 本地化；响应头带 `Content-Language` 与 `Vary: Accept-Language`。页面文案由前端词典提供，键缺失时原样显示键名。
+
 ### 租约
 
 |方法|路径|说明|
