@@ -21,6 +21,8 @@ metadata:
 type: Opaque
 stringData:
     READYZ_TOKEN: "your_readyz_token"
+    AUTH_TOKEN: "your_panel_token_123"
+    SESSION_SIGNING_KEY: "your_session_signing_key_0123456789abcd"
 
 ---
 apiVersion: v1

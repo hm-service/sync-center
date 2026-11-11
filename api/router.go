@@ -56,10 +56,13 @@ func (s *Server) routes() {
 	// 页面与静态资源共用一个兜底，避免 "GET /" 与 "/assets/" 的匹配度互相冲突
 	s.mux.Handle("/", s.gate(s.staticGate, http.HandlerFunc(s.site)))
 
-	s.mux.Handle("GET /ui/api/namespaces", s.gate(s.apiGate, http.HandlerFunc(s.uiNamespaces)))
-	s.mux.Handle("GET /ui/api/namespaces/{name}/snapshots", s.gate(s.apiGate, http.HandlerFunc(s.uiSnapshots)))
-	s.mux.Handle("GET /ui/api/namespaces/{name}/snapshots/{seq}", s.gate(s.apiGate, http.HandlerFunc(s.uiSnapshot)))
-	s.mux.Handle("GET /ui/api/blob/{digest}", s.gate(s.apiGate, http.HandlerFunc(s.uiBlob)))
+	s.mux.Handle("POST /api/auth", s.gate(s.apiGate, http.HandlerFunc(s.login)))
+	s.mux.Handle("/api/auth", s.methodNotAllowed("POST"))
+
+	s.mux.Handle("GET /ui/api/namespaces", s.protected(s.uiNamespaces))
+	s.mux.Handle("GET /ui/api/namespaces/{name}/snapshots", s.protected(s.uiSnapshots))
+	s.mux.Handle("GET /ui/api/namespaces/{name}/snapshots/{seq}", s.protected(s.uiSnapshot))
+	s.mux.Handle("GET /ui/api/blob/{digest}", s.protected(s.uiBlob))
 
 	s.mux.Handle("POST /v1/lease", s.gate(s.apiGate, http.HandlerFunc(s.createLease)))
 	s.mux.Handle("/v1/lease", s.methodNotAllowed("POST"))
@@ -107,12 +110,22 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) site(w http.ResponseWriter, r *http.Request) {
 	switch {
+	case r.URL.Path == "/auth":
+		if !allowRead(r.Method) {
+			s.methodNotAllowed("GET, HEAD")(w, r)
+			return
+		}
+		s.page(w, r, "auth.html")
 	case r.URL.Path == "/" || r.URL.Path == "/ui":
 		if !allowRead(r.Method) {
 			s.methodNotAllowed("GET, HEAD")(w, r)
 			return
 		}
-		s.page(w, r)
+		if !s.authenticated(r) {
+			http.Redirect(w, r, "/auth", http.StatusFound)
+			return
+		}
+		s.page(w, r, "index.html")
 	case strings.HasPrefix(r.URL.Path, "/assets/"):
 		if !allowRead(r.Method) {
 			s.methodNotAllowed("GET, HEAD")(w, r)
@@ -128,8 +141,8 @@ func allowRead(method string) bool {
 	return method == http.MethodGet || method == http.MethodHead
 }
 
-func (s *Server) page(w http.ResponseWriter, r *http.Request) {
-	index, err := fs.ReadFile(s.static, "index.html")
+func (s *Server) page(w http.ResponseWriter, r *http.Request, name string) {
+	index, err := fs.ReadFile(s.static, name)
 	if err != nil {
 		s.logger.Error("read index", "error", err)
 		httpx.Fail(w, http.StatusInternalServerError, "internal", "internal error")
@@ -149,6 +162,10 @@ func (s *Server) methodNotAllowed(allow string) http.HandlerFunc {
 
 func (s *Server) notFound(w http.ResponseWriter, r *http.Request) {
 	httpx.Fail(w, http.StatusNotFound, "not_found", "not found")
+}
+
+func (s *Server) protected(handler http.HandlerFunc) http.Handler {
+	return s.gate(s.apiGate, s.requireSession(handler))
 }
 
 func (s *Server) gate(sem chan struct{}, next http.Handler) http.Handler {

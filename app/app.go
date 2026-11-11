@@ -15,6 +15,7 @@ type App struct {
 	Blobs        *core.BlobStore
 	Tokens       *core.TokenIndex
 	Leases       *LeaseStore
+	Sessions     *core.Sessions
 	NamespaceIDs map[string]int64
 }
 
@@ -82,6 +83,7 @@ func New(config core.Config) (*App, error) {
 		Blobs:        blobs,
 		Tokens:       tokens,
 		Leases:       NewLeaseStore(leaseTTL),
+		Sessions:     core.NewSessions(config.SessionKey),
 		NamespaceIDs: ids,
 	}, nil
 }

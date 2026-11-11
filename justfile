@@ -18,7 +18,7 @@ default:
 # 把静态前端复制到 frontend/dist（供 go:embed 使用）
 frontend:
     @mkdir -p frontend/dist
-    @cp frontend/index.html frontend/app.css frontend/app.js frontend/dist/
+    @cp frontend/index.html frontend/auth.html frontend/app.css frontend/app.js frontend/auth.js frontend/dist/
 
 # 造占位 frontend/dist/STUB，让 go:embed 能编译；占位版跑起来 / 是 404、/readyz 是 503
 frontend-stub:

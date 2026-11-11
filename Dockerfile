@@ -19,7 +19,7 @@ COPY go.* ./
 RUN go mod download
 
 COPY . .
-RUN mkdir -p frontend/dist && cp frontend/index.html frontend/app.css frontend/app.js frontend/dist/
+RUN mkdir -p frontend/dist && cp frontend/index.html frontend/auth.html frontend/app.css frontend/app.js frontend/auth.js frontend/dist/
 
 # -ldflags="-w -s"：移除调试信息与符号表，明显减小二进制
 # -trimpath 从编译后的可执行文件中移除所有本地文件系统路径，以生成可复现的构建结果

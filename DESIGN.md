@@ -107,7 +107,7 @@ blob 不压缩。传输压缩由 HTTP 层处理。
 
 `/v1` 下的接口要求 `Authorization: Bearer <token>`。`GET` 与 `HEAD` 接口对 `r` 和 `rw` 都可用，其余接口要求 `rw`。错误响应为 `{"error":"<code>","message":"<text>"}`。
 
-监听端口上的 `/livez`、`/readyz`、`/ui` 不要求 token：前两个供编排系统探测，`/ui` 是只读浏览页。
+监听端口上的 `/livez`、`/readyz` 不要求 namespace token，供编排系统探测；`/ui` 与 `/ui/api/*` 使用面板会话，与 namespace token 无关，见第 9 节。
 
 请求体与响应体的字段统一使用 camelCase；数据库列名仍为 snake_case，不对外暴露。
 
@@ -148,8 +148,10 @@ blob 不压缩。传输压缩由 HTTP 层处理。
 |---|---|---|
 |GET|`/livez`|进程存活即 200，不记录访问日志|
 |GET|`/readyz`|数据目录与数据库可读写返回 200，否则 503；`READYZ_TOKEN` 非空时要求 `?token=`|
-|GET|`/ui`|只读浏览页面|
-|GET|`/ui/api/*`|页面使用的只读接口，不鉴权|
+|GET|`/auth`|登录页，不需要会话|
+|POST|`/api/auth`|body `{token}`；成功 200 并下发 30 天会话 cookie，失败 401|
+|GET|`/ui`|只读浏览页面，需要会话，未登录跳转 `/auth`|
+|GET|`/ui/api/*`|页面使用的只读接口，需要会话|
 
 ### 元信息
 
@@ -216,6 +218,14 @@ blob 不压缩。传输压缩由 HTTP 层处理。
 - 同一 namespace 可配置多个 token，用于设备轮换与撤销；增删 token 需要重启服务。
 - 应用层不做限流，由前置反向代理负责。
 
+面板与会话：
+
+- `AUTH_TOKEN` 是面板访问口令，启动时用 Argon2id（m=19456, t=2, p=1）折叠成 PHC 字符串，运行期只保留哈希。
+- 登录成功签发无状态会话：`<base64url(exp|nonce)>.<base64url(HMAC-SHA256(key, "v1|" + payload))>`，`key` 为 `SESSION_SIGNING_KEY`，有效期 30 天。
+- 会话以 `session` cookie（HttpOnly、SameSite=Lax）下发，同时接受 `Authorization: Bearer <会话>`，便于脚本调用。
+- 校验先验签名再验过期；登录成功与失败都至少耗时 1 秒，避免用响应时间区分口令。
+- 会话是无状态的，无法单个吊销；轮换 `SESSION_SIGNING_KEY` 会让所有会话失效。
+
 ## 10. 配置
 
 监听地址与数据目录通过环境变量提供，namespace 与 token 通过配置文件提供。
@@ -227,6 +237,8 @@ blob 不压缩。传输压缩由 HTTP 层处理。
 |DATA_DIR|/data|数据目录|
 |CONFIG_FILE|${DATA_DIR}/config.yaml|配置文件路径|
 |READYZ_TOKEN|空|非空时 `/readyz` 要求 `?token=` 等于该值|
+|AUTH_TOKEN|无默认值|面板访问口令，16-128 位字母、数字、下划线；不配置拒绝启动|
+|SESSION_SIGNING_KEY|无默认值|会话签名密钥，32-128 位字母、数字、下划线；不配置拒绝启动|
 |TRUSTED_PROXIES|127.0.0.1/32,::1/128|逗号分隔的 CIDR；只有直连对端落在其中才采信 `X-Forwarded-For` 与 `X-Real-IP`|
 |MAX_API_CONCURRENCY|128|`/v1` 与 `/ui/api` 的并发上限|
 |MAX_STATIC_CONCURRENCY|64|页面与静态资源的并发上限|

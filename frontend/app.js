@@ -2,8 +2,17 @@ const state = { namespace: null, seq: null, files: [] };
 
 const el = (id) => document.getElementById(id);
 
-async function api(path) {
+async function fetchOrLogin(path) {
   const response = await fetch(path);
+  if (response.status === 401) {
+    location.href = "/auth";
+    throw new Error("需要登录");
+  }
+  return response;
+}
+
+async function api(path) {
+  const response = await fetchOrLogin(path);
   if (!response.ok) throw new Error(await response.text());
   return response.json();
 }
@@ -194,7 +203,7 @@ async function previewFile(file, row) {
   }
 
   if (isText(file.path)) {
-    const response = await fetch(url);
+    const response = await fetchOrLogin(url);
     const text = await response.text();
     const pre = document.createElement("pre");
     pre.textContent = text;

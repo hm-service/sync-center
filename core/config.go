@@ -26,6 +26,8 @@ type Config struct {
 	Port           int
 	DataDir        string
 	ReadyToken     string
+	AuthHash       string
+	SessionKey     []byte
 	MaxAPI         int
 	MaxStatic      int
 	TrustedProxies []netip.Prefix
@@ -53,6 +55,19 @@ func LoadConfig() (Config, error) {
 	if cfg.TrustedProxies, err = prefixEnv("TRUSTED_PROXIES", "127.0.0.1/32,::1/128"); err != nil {
 		return Config{}, err
 	}
+
+	authToken, err := secretEnv("AUTH_TOKEN", 16, 128)
+	if err != nil {
+		return Config{}, err
+	}
+	if cfg.AuthHash, err = HashSecret(authToken); err != nil {
+		return Config{}, err
+	}
+	signingKey, err := secretEnv("SESSION_SIGNING_KEY", 32, 128)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.SessionKey = []byte(signingKey)
 
 	path := envOr("CONFIG_FILE", filepath.Join(cfg.DataDir, "config.yaml"))
 	namespaces, err := loadNamespaces(path)
@@ -121,6 +136,20 @@ func envOr(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func secretEnv(key string, minLen, maxLen int) (string, error) {
+	value := os.Getenv(key)
+	if len(value) < minLen || len(value) > maxLen {
+		return "", fmt.Errorf("%s must be %d-%d characters long", key, minLen, maxLen)
+	}
+	for _, r := range value {
+		valid := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_'
+		if !valid {
+			return "", fmt.Errorf("%s may only contain letters, digits and underscores", key)
+		}
+	}
+	return value, nil
 }
 
 func prefixEnv(key, fallback string) ([]netip.Prefix, error) {

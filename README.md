@@ -23,7 +23,13 @@ cp config.example.yaml .data/config.yaml   # 修改里面的 token
 DATA_DIR=$PWD/.data PORT=18080 ./.dist/app-linux-amd64
 ```
 
-启动后访问 `/ui` 浏览快照。`/livez`、`/readyz` 供编排系统探测，`/readyz` 在 `READYZ_TOKEN` 非空时要求 `?token=`。
+启动前必须设置两个变量，否则拒绝启动：
+
+```bash
+AUTH_TOKEN=<面板口令> SESSION_SIGNING_KEY=<32 位以上随机串>
+```
+
+访问 `/ui` 会跳转到 `/auth`，输入口令后建立 30 天会话。`/livez`、`/readyz` 供编排系统探测，`/readyz` 在 `READYZ_TOKEN` 非空时要求 `?token=`。
 
 ## 配置
 
@@ -74,4 +80,4 @@ DATA_DIR=$PWD/.data ./.dist/app-linux-amd64 gc
 - 单进程运行，租约保存在内存，重启后全部失效；
 - 单个 blob 上限 256 MiB，单个 manifest 上限 10 万条；
 - 没有 TLS 与限流，对外部署需要前置反向代理；
-- WebUI 的 `/ui` 与 `/ui/api/*` 不做认证，只适合内网访问。
+- 面板会话无状态，轮换 `SESSION_SIGNING_KEY` 会让所有人重新登录。

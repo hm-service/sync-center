@@ -26,6 +26,8 @@ func main() {
 		os.Exit(1)
 	}
 	os.Unsetenv("READYZ_TOKEN")
+	os.Unsetenv("AUTH_TOKEN")
+	os.Unsetenv("SESSION_SIGNING_KEY")
 
 	application, err := app.New(config)
 	if err != nil {
