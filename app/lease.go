@@ -7,8 +7,6 @@ import (
 	"time"
 )
 
-const leaseTTL = 60 * time.Second
-
 type Lease struct {
 	ID          string
 	NamespaceID int64

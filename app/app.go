@@ -82,7 +82,7 @@ func New(config core.Config) (*App, error) {
 		DB:           database,
 		Blobs:        blobs,
 		Tokens:       tokens,
-		Leases:       NewLeaseStore(leaseTTL),
+		Leases:       NewLeaseStore(config.LeaseTTL),
 		Sessions:     core.NewSessions(config.SessionKey),
 		NamespaceIDs: ids,
 	}, nil

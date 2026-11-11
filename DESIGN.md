@@ -87,7 +87,7 @@ blob 不压缩。传输压缩由 HTTP 层处理。
 生命周期：
 
 1. 客户端 `POST /v1/lease`。本 namespace 已有未过期租约时返回 423，这就是占用信号。
-2. 租约 TTL 60 秒，覆盖一次提交的传输与写入。客户端在长传输中可以调用 heartbeat 续期，每次续到当前时间 + 60 秒。
+2. 租约 TTL 由 `LEASE_TTL` 配置，默认 60 秒，覆盖一次提交的传输与写入。客户端在长传输中可以调用 heartbeat 续期，每次续到当前时间 + TTL。
 3. 客户端上传所需 blob（与租约无关）。
 4. 客户端 `POST /v1/snapshots`，携带 `leaseId`。服务端校验后写入快照并更新 `namespace.updated_at`，成功后删除租约；`parent` 不匹配返回 409 时同样删除租约，客户端重新拉取后可以直接重试。
 5. 客户端异常退出时，租约在 TTL 后自然失效；也可主动 `DELETE /v1/lease/{id}` 提前释放。
@@ -244,6 +244,7 @@ blob 不压缩。传输压缩由 HTTP 层处理。
 |TRUSTED_PROXIES|127.0.0.1/32,::1/128|逗号分隔的 CIDR；只有直连对端落在其中才采信 `X-Forwarded-For` 与 `X-Real-IP`|
 |MAX_API_CONCURRENCY|128|`/v1` 与 `/ui/api` 的并发上限|
 |MAX_STATIC_CONCURRENCY|64|页面与静态资源的并发上限|
+|LEASE_TTL|60|租约有效期，单位秒，1-86400|
 
 配置文件为 YAML：
 

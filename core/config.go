@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -37,6 +38,7 @@ type Config struct {
 	SessionKey     []byte
 	MaxAPI         int
 	MaxStatic      int
+	LeaseTTL       time.Duration
 	TrustedProxies []netip.Prefix
 	Namespaces     []Namespace
 }
@@ -59,6 +61,11 @@ func LoadConfig() (Config, error) {
 	if cfg.MaxStatic, err = intEnv("MAX_STATIC_CONCURRENCY", defaultMaxStatic, 1, 1<<20); err != nil {
 		return Config{}, err
 	}
+	leaseSeconds, err := intEnv("LEASE_TTL", 60, 1, 86400)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.LeaseTTL = time.Duration(leaseSeconds) * time.Second
 	if cfg.TrustedProxies, err = prefixEnv("TRUSTED_PROXIES", "127.0.0.1/32,::1/128"); err != nil {
 		return Config{}, err
 	}
