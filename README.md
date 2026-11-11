@@ -41,6 +41,8 @@ AUTH_TOKEN=<面板口令> SESSION_SIGNING_KEY=<32 位以上随机串>
 
 环境变量与 `config.yaml` 的语义见 DESIGN.md 第 10 节。配置里每个 token 形如 `"<token>:rw"` 或 `"<token>:r"`，决定 namespace 与读写权限。
 
+token 主体为 16-128 位字母、数字或下划线，namespace 名称为 1-63 位字母、数字或横线；不满足时启动直接失败，不会带着宽松的配置跑起来。
+
 ## 测试
 
 服务启动后执行：

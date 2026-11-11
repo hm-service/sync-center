@@ -5,10 +5,17 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+)
+
+// namespace 名会成为目录名，只允许字母、数字与横线；token 沿用面板口令的字符集。
+var (
+	namespacePattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,63}$`)
+	tokenPattern     = regexp.MustCompile(`^[A-Za-z0-9_]{16,128}$`)
 )
 
 const (
@@ -96,8 +103,8 @@ func loadNamespaces(path string) ([]Namespace, error) {
 	seen := make(map[string]bool, len(file.Namespaces))
 	for i := range file.Namespaces {
 		ns := &file.Namespaces[i]
-		if strings.TrimSpace(ns.Name) == "" {
-			return nil, fmt.Errorf("namespace name must not be empty")
+		if !namespacePattern.MatchString(ns.Name) {
+			return nil, fmt.Errorf("namespace %q must be 1-63 characters of letters, digits and hyphens", ns.Name)
 		}
 		if seen[ns.Name] {
 			return nil, fmt.Errorf("duplicate namespace %q", ns.Name)
@@ -122,8 +129,8 @@ func SplitToken(entry string) (string, string, error) {
 		return "", "", fmt.Errorf("invalid token entry %q", entry)
 	}
 	body, perm := entry[:i], entry[i+1:]
-	if strings.Contains(body, ":") {
-		return "", "", fmt.Errorf("token body must not contain ':'")
+	if !tokenPattern.MatchString(body) {
+		return "", "", fmt.Errorf("token must be 16-128 characters of letters, digits and underscores")
 	}
 	if perm != "r" && perm != "rw" {
 		return "", "", fmt.Errorf("token permission must be r or rw, got %q", perm)
