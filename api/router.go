@@ -4,7 +4,6 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -224,15 +223,11 @@ func (s *Server) log(next http.Handler) http.Handler {
 		if rec.status == 0 {
 			rec.status = http.StatusOK
 		}
-		host, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			host = r.RemoteAddr
-		}
 		s.logger.Info("request",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", rec.status,
-			"client_ip", host,
+			"client_ip", httpx.ClientIP(r, s.app.Config.TrustedProxies),
 			"duration_ms", time.Since(started).Milliseconds(),
 		)
 	})

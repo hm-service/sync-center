@@ -227,6 +227,7 @@ blob 不压缩。传输压缩由 HTTP 层处理。
 |DATA_DIR|/data|数据目录|
 |CONFIG_FILE|${DATA_DIR}/config.yaml|配置文件路径|
 |READYZ_TOKEN|空|非空时 `/readyz` 要求 `?token=` 等于该值|
+|TRUSTED_PROXIES|127.0.0.1/32,::1/128|逗号分隔的 CIDR；只有直连对端落在其中才采信 `X-Forwarded-For` 与 `X-Real-IP`|
 |MAX_API_CONCURRENCY|128|`/v1` 与 `/ui/api` 的并发上限|
 |MAX_STATIC_CONCURRENCY|64|页面与静态资源的并发上限|
 

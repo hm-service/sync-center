@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -21,13 +22,14 @@ type Namespace struct {
 }
 
 type Config struct {
-	Host       string
-	Port       int
-	DataDir    string
-	ReadyToken string
-	MaxAPI     int
-	MaxStatic  int
-	Namespaces []Namespace
+	Host           string
+	Port           int
+	DataDir        string
+	ReadyToken     string
+	MaxAPI         int
+	MaxStatic      int
+	TrustedProxies []netip.Prefix
+	Namespaces     []Namespace
 }
 
 // LoadConfig 读取环境变量与 namespace 配置文件；任何不合法都直接返回错误。
@@ -46,6 +48,9 @@ func LoadConfig() (Config, error) {
 		return Config{}, err
 	}
 	if cfg.MaxStatic, err = intEnv("MAX_STATIC_CONCURRENCY", defaultMaxStatic, 1, 1<<20); err != nil {
+		return Config{}, err
+	}
+	if cfg.TrustedProxies, err = prefixEnv("TRUSTED_PROXIES", "127.0.0.1/32,::1/128"); err != nil {
 		return Config{}, err
 	}
 
@@ -116,6 +121,26 @@ func envOr(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func prefixEnv(key, fallback string) ([]netip.Prefix, error) {
+	raw, ok := os.LookupEnv(key)
+	if !ok || strings.TrimSpace(raw) == "" {
+		raw = fallback
+	}
+	var prefixes []netip.Prefix
+	for _, item := range strings.Split(raw, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		prefix, err := netip.ParsePrefix(item)
+		if err != nil {
+			return nil, fmt.Errorf("%s must be comma-separated CIDRs, got %q", key, item)
+		}
+		prefixes = append(prefixes, prefix.Masked())
+	}
+	return prefixes, nil
 }
 
 func intEnv(key string, fallback, low, high int) (int, error) {
