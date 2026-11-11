@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const leaseTTL = 600 * time.Second
+const leaseTTL = 60 * time.Second
 
 type Lease struct {
 	ID          string
