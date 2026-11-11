@@ -42,11 +42,6 @@ func main() {
 		removed, err := application.CollectGarbage(app.GarbageGrace)
 		if err != nil {
 			logger.Error("collect garbage", "error", err)
-			_ = application.Close()
-			os.Exit(1)
-		}
-		if err := application.Close(); err != nil {
-			logger.Error("close application", "error", err)
 			os.Exit(1)
 		}
 		logger.Info("garbage collected", "removed", removed)
@@ -90,9 +85,5 @@ func main() {
 		}
 	}
 
-	if err := application.Close(); err != nil {
-		logger.Error("close application", "error", err)
-		os.Exit(255)
-	}
 	logger.Info("server shutdown", "stop_at", time.Now().Format(time.RFC3339))
 }

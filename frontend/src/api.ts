@@ -1,4 +1,4 @@
-export type Namespace = { id: number; name: string; createdAt: number; updatedAt: number };
+export type Namespace = { name: string; createdAt: number; updatedAt: number };
 export type SnapshotMeta = { seq: number; createdAt: number; totalBytes: number };
 export type Entry = { path: string; hash: string; size: number; mode: number; mtime: number };
 export type Snapshot = { seq: number; createdAt: number; totalBytes: number; manifest: { files: Entry[] } };

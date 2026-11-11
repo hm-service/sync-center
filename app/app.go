@@ -3,23 +3,22 @@ package app
 import (
 	"fmt"
 	"os"
-	"path/filepath"
+	"sort"
 
 	"sync-center/core"
-	"sync-center/db"
 )
 
 type App struct {
-	Config       core.Config
-	DB           *db.DB
-	Blobs        *core.BlobStore
-	Tokens       *core.TokenIndex
-	Leases       *LeaseStore
-	Sessions     *core.Sessions
-	NamespaceIDs map[string]int64
+	Config     core.Config
+	Snapshots  *core.SnapshotStore
+	Blobs      *core.BlobStore
+	Tokens     *core.TokenIndex
+	Leases     *LeaseStore
+	Sessions   *core.Sessions
+	Namespaces []string
 }
 
-// New 打开数据目录、数据库与 blob 存储，并把配置里的 namespace 同步到库中。
+// New 打开数据目录、快照与 blob 存储，并为配置里的每个 namespace 建好目录。
 func New(config core.Config) (*App, error) {
 	info, err := os.Stat(config.DataDir)
 	if err != nil {
@@ -32,62 +31,46 @@ func New(config core.Config) (*App, error) {
 		return nil, fmt.Errorf("tighten data dir: %w", err)
 	}
 
-	dbPath := filepath.Join(config.DataDir, "sync.db")
-	database, err := db.Open(dbPath)
+	snapshots, err := core.NewSnapshotStore(config.DataDir)
 	if err != nil {
-		return nil, fmt.Errorf("open database: %w", err)
-	}
-	if err := os.Chmod(dbPath, 0o600); err != nil {
-		database.Close()
-		return nil, fmt.Errorf("tighten database: %w", err)
+		return nil, fmt.Errorf("open snapshot store: %w", err)
 	}
 
 	names := make([]string, 0, len(config.Namespaces))
 	for _, namespace := range config.Namespaces {
+		if err := snapshots.Ensure(namespace.Name); err != nil {
+			return nil, fmt.Errorf("create namespace %q: %w", namespace.Name, err)
+		}
 		names = append(names, namespace.Name)
 	}
-	if err := database.SyncNamespaces(names); err != nil {
-		database.Close()
-		return nil, fmt.Errorf("sync namespaces: %w", err)
-	}
+	sort.Strings(names)
 
 	tokens, err := core.NewTokenIndex(config.Namespaces)
 	if err != nil {
-		database.Close()
 		return nil, err
 	}
 
 	blobs, err := core.NewBlobStore(config.DataDir, core.MaxBlobSize)
 	if err != nil {
-		database.Close()
 		return nil, fmt.Errorf("open blob store: %w", err)
 	}
 
-	ids := make(map[string]int64, len(names))
-	for _, name := range names {
-		row, err := database.NamespaceByName(name)
-		if err != nil {
-			database.Close()
-			return nil, fmt.Errorf("load namespace: %w", err)
-		}
-		if row == nil {
-			database.Close()
-			return nil, fmt.Errorf("namespace %q missing after sync", name)
-		}
-		ids[name] = row.ID
-	}
-
 	return &App{
-		Config:       config,
-		DB:           database,
-		Blobs:        blobs,
-		Tokens:       tokens,
-		Leases:       NewLeaseStore(config.LeaseTTL),
-		Sessions:     core.NewSessions(config.SessionKey),
-		NamespaceIDs: ids,
+		Config:     config,
+		Snapshots:  snapshots,
+		Blobs:      blobs,
+		Tokens:     tokens,
+		Leases:     NewLeaseStore(config.LeaseTTL),
+		Sessions:   core.NewSessions(config.SessionKey),
+		Namespaces: names,
 	}, nil
 }
 
-func (a *App) Close() error {
-	return a.DB.Close()
+func (a *App) HasNamespace(name string) bool {
+	for _, candidate := range a.Namespaces {
+		if candidate == name {
+			return true
+		}
+	}
+	return false
 }

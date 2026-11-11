@@ -3,14 +3,12 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"strconv"
 
 	"sync-center/core"
-	"sync-center/db"
 	"sync-center/httpx"
 )
 
@@ -38,7 +36,7 @@ func (s *Server) createLease(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	lease, ok := s.app.Leases.Acquire(p.NamespaceID)
+	lease, ok := s.app.Leases.Acquire(p.Namespace)
 	if !ok {
 		s.fail(w, r, http.StatusLocked, "leased", "error.leased")
 		return
@@ -54,7 +52,7 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	lease, ok := s.app.Leases.Heartbeat(r.PathValue("id"), p.NamespaceID)
+	lease, ok := s.app.Leases.Heartbeat(r.PathValue("id"), p.Namespace)
 	if !ok {
 		s.fail(w, r, http.StatusLocked, "lease_not_found", "error.lease-not-found")
 		return
@@ -67,7 +65,7 @@ func (s *Server) releaseLease(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !s.app.Leases.Release(r.PathValue("id"), p.NamespaceID) {
+	if !s.app.Leases.Release(r.PathValue("id"), p.Namespace) {
 		s.fail(w, r, http.StatusLocked, "lease_not_found", "error.lease-not-found")
 		return
 	}
@@ -155,12 +153,12 @@ func (s *Server) createSnapshot(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusUnprocessableEntity, "invalid_body", "error.lease-id-required")
 		return
 	}
-	if _, held := s.app.Leases.Peek(request.LeaseID, p.NamespaceID); !held {
+	if _, held := s.app.Leases.Peek(request.LeaseID, p.Namespace); !held {
 		s.fail(w, r, http.StatusLocked, "lease_required", "error.lease-required")
 		return
 	}
 
-	payload, manifest, total, err := core.Normalize(request.Manifest)
+	manifest, total, err := core.Normalize(request.Manifest)
 	if err != nil {
 		s.fail(w, r, http.StatusUnprocessableEntity, "invalid_manifest", "error.invalid-manifest", err.Error())
 		return
@@ -177,10 +175,10 @@ func (s *Server) createSnapshot(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	seq, err := s.app.DB.Commit(p.NamespaceID, request.Parent, payload, total)
-	if errors.Is(err, db.ErrConflict) {
+	seq, err := s.app.Snapshots.Commit(p.Namespace, request.Parent, manifest, total)
+	if errors.Is(err, core.ErrConflict) {
 		// parent 已过期，本次提交注定失败；释放租约让客户端重新拉取后立即重试
-		s.app.Leases.Release(request.LeaseID, p.NamespaceID)
+		s.app.Leases.Release(request.LeaseID, p.Namespace)
 		s.fail(w, r, http.StatusConflict, "conflict", "error.conflict")
 		return
 	}
@@ -189,7 +187,7 @@ func (s *Server) createSnapshot(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
 		return
 	}
-	s.app.Leases.Release(request.LeaseID, p.NamespaceID)
+	s.app.Leases.Release(request.LeaseID, p.Namespace)
 	httpx.JSON(w, http.StatusCreated, map[string]any{"seq": seq})
 }
 
@@ -198,17 +196,17 @@ func (s *Server) latestSnapshot(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	snapshot, err := s.app.DB.Head(p.NamespaceID)
+	metas, err := s.app.Snapshots.List(p.Namespace, 1)
 	if err != nil {
 		s.logger.Error("read head", "error", err)
 		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
 		return
 	}
-	if snapshot == nil {
+	if len(metas) == 0 {
 		s.fail(w, r, http.StatusNotFound, "not_found", "error.no-snapshot")
 		return
 	}
-	s.writeSnapshot(w, snapshot)
+	s.serveSnapshot(w, r, p.Namespace, metas[0].Seq, "not_found", "error.no-snapshot")
 }
 
 func (s *Server) listSnapshots(w http.ResponseWriter, r *http.Request) {
@@ -225,17 +223,13 @@ func (s *Server) listSnapshots(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = parsed
 	}
-	rows, err := s.app.DB.Snapshots(p.NamespaceID, limit)
+	metas, err := s.app.Snapshots.List(p.Namespace, limit)
 	if err != nil {
 		s.logger.Error("list snapshots", "error", err)
 		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
 		return
 	}
-	items := make([]snapshotMetaJSON, 0, len(rows))
-	for _, row := range rows {
-		items = append(items, snapshotMetaJSON{Seq: row.Seq, CreatedAt: row.CreatedAt, TotalBytes: row.TotalBytes})
-	}
-	httpx.JSON(w, http.StatusOK, map[string]any{"snapshots": items})
+	httpx.JSON(w, http.StatusOK, map[string]any{"snapshots": snapshotMetas(metas)})
 }
 
 func (s *Server) getSnapshot(w http.ResponseWriter, r *http.Request) {
@@ -253,17 +247,7 @@ func (s *Server) getSnapshot(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusNotFound, "not_found", "error.snapshot-not-found")
 		return
 	}
-	snapshot, err := s.app.DB.Snapshot(p.NamespaceID, seq)
-	if err != nil {
-		s.logger.Error("read snapshot", "error", err)
-		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
-		return
-	}
-	if snapshot == nil {
-		s.fail(w, r, http.StatusNotFound, "not_found", "error.snapshot-not-found")
-		return
-	}
-	s.writeSnapshot(w, snapshot)
+	s.serveSnapshot(w, r, p.Namespace, seq, "not_found", "error.snapshot-not-found")
 }
 
 func (s *Server) metadata(w http.ResponseWriter, r *http.Request) {
@@ -271,7 +255,7 @@ func (s *Server) metadata(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := s.app.DB.Snapshots(p.NamespaceID, metadataPage)
+	metas, err := s.app.Snapshots.List(p.Namespace, metadataPage)
 	if err != nil {
 		s.logger.Error("read metadata", "error", err)
 		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
@@ -281,23 +265,37 @@ func (s *Server) metadata(w http.ResponseWriter, r *http.Request) {
 	if p.CanWrite {
 		mode = "rw"
 	}
-	items := make([]snapshotMetaJSON, 0, len(rows))
-	for _, row := range rows {
-		items = append(items, snapshotMetaJSON{Seq: row.Seq, CreatedAt: row.CreatedAt, TotalBytes: row.TotalBytes})
-	}
 	httpx.JSON(w, http.StatusOK, map[string]any{
 		"namespace": p.Namespace,
 		"mode":      mode,
-		"snapshots": items,
+		"snapshots": snapshotMetas(metas),
 	})
 }
 
-// writeSnapshot 直接把库里存的 manifest 原文拼进响应，避免解析成结构再序列化。
-func (s *Server) writeSnapshot(w http.ResponseWriter, snapshot *db.Snapshot) {
+// serveSnapshot 打开快照并流式写出，文件本身已是响应结构，不做解析。
+func (s *Server) serveSnapshot(w http.ResponseWriter, r *http.Request, namespace string, seq int64, code, key string) {
+	snapshot, err := s.app.Snapshots.Open(namespace, seq)
+	if err != nil {
+		s.logger.Error("read snapshot", "namespace", namespace, "seq", seq, "error", err)
+		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
+		return
+	}
+	if snapshot == nil {
+		s.fail(w, r, http.StatusNotFound, code, key)
+		return
+	}
+	defer snapshot.Close()
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "{\"seq\":%d,\"createdAt\":%d,\"totalBytes\":%d,\"manifest\":",
-		snapshot.Seq, snapshot.CreatedAt, snapshot.TotalBytes)
-	_, _ = io.WriteString(w, snapshot.Manifest)
-	_, _ = io.WriteString(w, "}\n")
+	if err := snapshot.WriteJSON(w); err != nil {
+		s.logger.Error("write snapshot", "namespace", namespace, "seq", seq, "error", err)
+	}
+}
+
+func snapshotMetas(metas []core.SnapshotMeta) []snapshotMetaJSON {
+	items := make([]snapshotMetaJSON, 0, len(metas))
+	for _, meta := range metas {
+		items = append(items, snapshotMetaJSON{Seq: meta.Seq, CreatedAt: meta.CreatedAt, TotalBytes: meta.TotalBytes})
+	}
+	return items
 }

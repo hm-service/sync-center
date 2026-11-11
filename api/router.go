@@ -25,11 +25,6 @@ type Server struct {
 	staticGate chan struct{}
 }
 
-type principal struct {
-	core.Principal
-	NamespaceID int64
-}
-
 func New(application *app.App, static fs.FS, logger *slog.Logger) *Server {
 	server := &Server{
 		app:        application,
@@ -101,7 +96,7 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusUnauthorized, "unauthorized", "error.readyz-token")
 		return
 	}
-	if err := s.app.DB.Probe(); err != nil {
+	if err := s.app.Snapshots.Probe(); err != nil {
 		s.logger.Error("readyz probe failed", "error", err)
 		s.fail(w, r, http.StatusServiceUnavailable, "unavailable", "error.unavailable")
 		return
@@ -183,20 +178,16 @@ func (s *Server) gate(sem chan struct{}, next http.Handler) http.Handler {
 }
 
 // principal 从 Bearer token 解出 namespace；token 的权限在配置里，运行期只留摘要。
-func (s *Server) principal(r *http.Request) (principal, error) {
+func (s *Server) principal(r *http.Request) (core.Principal, error) {
 	header := r.Header.Get("Authorization")
 	if !strings.HasPrefix(header, "Bearer ") {
-		return principal{}, errUnauthorized
+		return core.Principal{}, errUnauthorized
 	}
 	found, ok := s.app.Tokens.Lookup(strings.TrimPrefix(header, "Bearer "))
 	if !ok {
-		return principal{}, errUnauthorized
+		return core.Principal{}, errUnauthorized
 	}
-	namespaceID, ok := s.app.NamespaceIDs[found.Namespace]
-	if !ok {
-		return principal{}, errUnauthorized
-	}
-	return principal{Principal: found, NamespaceID: namespaceID}, nil
+	return found, nil
 }
 
 var (
@@ -204,15 +195,15 @@ var (
 	errForbidden    = errors.New("forbidden")
 )
 
-func (s *Server) require(w http.ResponseWriter, r *http.Request, write bool) (principal, bool) {
+func (s *Server) require(w http.ResponseWriter, r *http.Request, write bool) (core.Principal, bool) {
 	p, err := s.principal(r)
 	if err != nil {
 		s.fail(w, r, http.StatusUnauthorized, "unauthorized", "error.unauthorized")
-		return principal{}, false
+		return core.Principal{}, false
 	}
 	if write && !p.CanWrite {
 		s.fail(w, r, http.StatusForbidden, "forbidden", "error.forbidden")
-		return principal{}, false
+		return core.Principal{}, false
 	}
 	return p, true
 }

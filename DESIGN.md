@@ -43,38 +43,34 @@
 
 ```
 data/
-  sync.db
   blobs/
+  namespaces/
+    default/
+      00000022.jsonl
+      00000023.jsonl
   tmp/
 ```
+
+每个快照一个 JSONL 文件，首行是元数据，其余每行一个文件条目。文件名只承载 `seq`，元数据只存在于文件里；head 是目录中 `seq` 最大的那个文件，不需要额外的指针文件。
+
+按行组织而不是把整个 manifest 存成单个 JSON 文档：读取、提交比对、垃圾回收都按行流式进行，服务端不必把 manifest 读进内存，`head -1` 也能直接看到元数据。
 
 blob 以流式方式写入临时位置，内容哈希与长度校验通过后原子移入正式位置；校验失败时丢弃临时内容。blob 的元数据由文件系统提供。
 
 blob 不压缩。传输压缩由 HTTP 层处理。
 
-## 4. 数据库
+## 4. 快照文件
 
-表间关系由应用层维护，不使用数据库外键。时间统一存 Unix 秒（INTEGER）。两张表都使用内部自增整数主键，不对外暴露；对外标识为 `snapshot.seq`。
+```
+{"seq":22,"createdAt":1762870000,"totalBytes":55445562}
+{"path":"notes/todo.md","hash":"<hex64>","size":123,"mode":420,"mtime":1794419423123}
+```
 
-### namespace
+首行是 `seq`、`createdAt`（Unix 秒）与 `totalBytes`（各条目 `size` 之和）。之后每行一个条目，字段与 API 中的 manifest 条目一致，顺序固定，条目按 `path` 的 UTF-8 字节序排序。
 
-|字段|类型|说明|
-|---|---|---|
-|id|INTEGER|主键，内部自增|
-|name|TEXT|唯一名称|
-|created_at|INTEGER|创建时间|
-|updated_at|INTEGER|最近一次提交时间|
+文件名是 `%08d.jsonl`，补零只为目录整齐，排序仍按数值解析。读取首行后与文件名中的 `seq` 比对，不一致视为损坏。
 
-### snapshot
-
-|字段|类型|说明|
-|---|---|---|
-|id|INTEGER|主键，内部自增|
-|namespace_id|INTEGER|所属 namespace|
-|seq|INTEGER|namespace 内自增，与 namespace_id 组合唯一|
-|manifest|TEXT|manifest JSON 原文|
-|total_bytes|INTEGER|文件总字节数|
-|created_at|INTEGER|创建时间|
+提交先写 `tmp/` 下的临时文件，再原子改名到 `namespaces/<ns>/`；崩溃留下的临时文件由垃圾回收清理。
 
 `path` 按 UTF-8 字节序比较。写入前校验：非空、相对路径、以 `/` 分隔、无 `.`/`..`/空段、无反斜杠、长度 ≤ 1024、非控制字符。
 
@@ -89,7 +85,7 @@ blob 不压缩。传输压缩由 HTTP 层处理。
 1. 客户端 `POST /v1/lease`。本 namespace 已有未过期租约时返回 423，这就是占用信号。
 2. 租约 TTL 由 `LEASE_TTL` 配置，默认 60 秒，覆盖一次提交的传输与写入。客户端在长传输中可以调用 heartbeat 续期，每次续到当前时间 + TTL。
 3. 客户端上传所需 blob（与租约无关）。
-4. 客户端 `POST /v1/snapshots`，携带 `leaseId`。服务端校验后写入快照并更新 `namespace.updated_at`，成功后删除租约；`parent` 不匹配返回 409 时同样删除租约，客户端重新拉取后可以直接重试。
+4. 客户端 `POST /v1/snapshots`，携带 `leaseId`。服务端校验后写入快照文件，成功后删除租约；`parent` 不匹配返回 409 时同样删除租约，客户端重新拉取后可以直接重试。
 5. 客户端异常退出时，租约在 TTL 后自然失效；也可主动 `DELETE /v1/lease/{id}` 提前释放。
 
 提交时的检查，全部失败即拒绝：
@@ -109,7 +105,7 @@ blob 不压缩。传输压缩由 HTTP 层处理。
 
 监听端口上的 `/livez`、`/readyz` 不要求 namespace token，供编排系统探测；`/ui` 与 `/ui/api/*` 使用面板会话，与 namespace token 无关，见第 9 节。
 
-请求体与响应体的字段统一使用 camelCase；数据库列名仍为 snake_case，不对外暴露。
+请求体与响应体的字段统一使用 camelCase。
 
 用户可见文案支持简体中文与英文。错误码保持英文，`message` 按 `Accept-Language` 本地化；响应头带 `Content-Language` 与 `Vary: Accept-Language`。页面文案由前端词典提供，键缺失时原样显示键名。
 
@@ -149,7 +145,7 @@ blob 不压缩。传输压缩由 HTTP 层处理。
 |方法|路径|说明|
 |---|---|---|
 |GET|`/livez`|进程存活即 200，不记录访问日志|
-|GET|`/readyz`|数据目录与数据库可读写返回 200，否则 503；`READYZ_TOKEN` 非空时要求 `?token=`|
+|GET|`/readyz`|数据目录可读写返回 200，否则 503；`READYZ_TOKEN` 非空时要求 `?token=`|
 |GET|`/auth`|单页应用的登录视图，不需要会话|
 |POST|`/api/auth`|body `{token}`；成功 200 并下发 30 天会话 cookie，失败 401|
 |GET|`/ui`|只读浏览页面，需要会话，未登录跳转 `/auth`|
@@ -259,7 +255,7 @@ namespaces:
 - `tokens` 每项为 `<token>:<权限>`，权限取 `r` 或 `rw`，作用于整个 namespace。
 - token 主体为 16-128 位字母、数字或下划线，与面板口令同一套字符集。
 - namespace 名称为 1-63 位字母、数字或横线；它会成为数据目录下的子目录名，不含其他字符。
-- namespace 名称在启动时与数据库同步，不存在则创建。
+- namespace 名称在启动时对应数据目录下的一个子目录，不存在则创建。
 - 加载后只保留 token 的哈希与权限，明文不落盘。
 - 配置文件包含明文 token，应限制为 0600 权限。
 - 启动时校验格式，不合法直接拒绝启动；修改配置后需要重启服务。
@@ -308,7 +304,7 @@ pull：
 
 - 单个静态二进制（`CGO_ENABLED=0`），运行时只依赖数据目录。
 - 监听地址与数据目录通过环境变量提供，namespace 与 token 通过配置文件提供。
-- 数据目录包含 `sync.db`、`blobs/`、`tmp/`，必须位于本地文件系统，不能放在 NFS 或网络卷上。
+- 数据目录包含 `blobs/`、`namespaces/`、`tmp/`，必须位于本地文件系统，不能放在 NFS 或网络卷上。
 - 监听地址取自 `HOST` 与 `PORT`，对外通过反向代理或 WireGuard 地址暴露。
 - 备份方式为停止写入后复制整个数据目录。
 

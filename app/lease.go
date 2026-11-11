@@ -8,19 +8,19 @@ import (
 )
 
 type Lease struct {
-	ID          string
-	NamespaceID int64
-	ExpiresAt   time.Time
+	ID        string
+	Namespace string
+	ExpiresAt time.Time
 }
 
 type LeaseStore struct {
 	mu    sync.Mutex
 	ttl   time.Duration
-	items map[int64]*Lease
+	items map[string]*Lease
 }
 
 func NewLeaseStore(ttl time.Duration) *LeaseStore {
-	return &LeaseStore{ttl: ttl, items: make(map[int64]*Lease)}
+	return &LeaseStore{ttl: ttl, items: make(map[string]*Lease)}
 }
 
 func (s *LeaseStore) purgeLocked(now time.Time) {
@@ -32,12 +32,12 @@ func (s *LeaseStore) purgeLocked(now time.Time) {
 }
 
 // Acquire 每个 namespace 同时只允许一个未过期租约。
-func (s *LeaseStore) Acquire(namespaceID int64) (*Lease, bool) {
+func (s *LeaseStore) Acquire(namespace string) (*Lease, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
 	s.purgeLocked(now)
-	if _, ok := s.items[namespaceID]; ok {
+	if _, ok := s.items[namespace]; ok {
 		return nil, false
 	}
 	raw := make([]byte, 16)
@@ -45,31 +45,31 @@ func (s *LeaseStore) Acquire(namespaceID int64) (*Lease, bool) {
 		return nil, false
 	}
 	lease := &Lease{
-		ID:          hex.EncodeToString(raw),
-		NamespaceID: namespaceID,
-		ExpiresAt:   now.Add(s.ttl),
+		ID:        hex.EncodeToString(raw),
+		Namespace: namespace,
+		ExpiresAt: now.Add(s.ttl),
 	}
-	s.items[namespaceID] = lease
+	s.items[namespace] = lease
 	return lease, true
 }
 
-func (s *LeaseStore) Peek(id string, namespaceID int64) (*Lease, bool) {
+func (s *LeaseStore) Peek(id, namespace string) (*Lease, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.purgeLocked(time.Now())
-	lease, ok := s.items[namespaceID]
+	lease, ok := s.items[namespace]
 	if !ok || lease.ID != id {
 		return nil, false
 	}
 	return lease, true
 }
 
-func (s *LeaseStore) Heartbeat(id string, namespaceID int64) (*Lease, bool) {
+func (s *LeaseStore) Heartbeat(id, namespace string) (*Lease, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
 	s.purgeLocked(now)
-	lease, ok := s.items[namespaceID]
+	lease, ok := s.items[namespace]
 	if !ok || lease.ID != id {
 		return nil, false
 	}
@@ -77,13 +77,13 @@ func (s *LeaseStore) Heartbeat(id string, namespaceID int64) (*Lease, bool) {
 	return lease, true
 }
 
-func (s *LeaseStore) Release(id string, namespaceID int64) bool {
+func (s *LeaseStore) Release(id, namespace string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	lease, ok := s.items[namespaceID]
+	lease, ok := s.items[namespace]
 	if !ok || lease.ID != id {
 		return false
 	}
-	delete(s.items, namespaceID)
+	delete(s.items, namespace)
 	return true
 }

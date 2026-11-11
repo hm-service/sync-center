@@ -1,8 +1,6 @@
 package api
 
 import (
-	"fmt"
-	"io"
 	"mime"
 	"net/http"
 	"os"
@@ -16,27 +14,27 @@ import (
 const uiPageSize = 20
 
 func (s *Server) uiNamespaces(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.app.DB.ListNamespaces()
-	if err != nil {
-		s.logger.Error("list namespaces", "error", err)
-		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
-		return
-	}
-	items := make([]map[string]any, 0, len(rows))
-	for _, row := range rows {
+	items := make([]map[string]any, 0, len(s.app.Namespaces))
+	for _, name := range s.app.Namespaces {
+		info, err := s.app.Snapshots.Info(name)
+		if err != nil {
+			s.logger.Error("read namespace", "namespace", name, "error", err)
+			s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
+			return
+		}
 		items = append(items, map[string]any{
-			"id":        row.ID,
-			"name":      row.Name,
-			"createdAt": row.CreatedAt,
-			"updatedAt": row.UpdatedAt,
+			"name":      info.Name,
+			"createdAt": info.CreatedAt,
+			"updatedAt": info.UpdatedAt,
 		})
 	}
 	httpx.JSON(w, http.StatusOK, items)
 }
 
 func (s *Server) uiSnapshots(w http.ResponseWriter, r *http.Request) {
-	namespace, ok := s.namespace(w, r, r.PathValue("name"))
-	if !ok {
+	name := r.PathValue("name")
+	if !s.app.HasNamespace(name) {
+		s.fail(w, r, http.StatusNotFound, "namespace_not_found", "error.namespace-not-found")
 		return
 	}
 	limit := uiPageSize
@@ -48,22 +46,19 @@ func (s *Server) uiSnapshots(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = parsed
 	}
-	rows, err := s.app.DB.Snapshots(namespace.ID, limit)
+	metas, err := s.app.Snapshots.List(name, limit)
 	if err != nil {
-		s.logger.Error("list snapshots", "error", err)
+		s.logger.Error("list snapshots", "namespace", name, "error", err)
 		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
 		return
 	}
-	items := make([]snapshotMetaJSON, 0, len(rows))
-	for _, row := range rows {
-		items = append(items, snapshotMetaJSON{Seq: row.Seq, CreatedAt: row.CreatedAt, TotalBytes: row.TotalBytes})
-	}
-	httpx.JSON(w, http.StatusOK, map[string]any{"namespace": namespace.Name, "snapshots": items})
+	httpx.JSON(w, http.StatusOK, map[string]any{"namespace": name, "snapshots": snapshotMetas(metas)})
 }
 
 func (s *Server) uiSnapshot(w http.ResponseWriter, r *http.Request) {
-	namespace, ok := s.namespace(w, r, r.PathValue("name"))
-	if !ok {
+	name := r.PathValue("name")
+	if !s.app.HasNamespace(name) {
+		s.fail(w, r, http.StatusNotFound, "namespace_not_found", "error.namespace-not-found")
 		return
 	}
 	seq, err := strconv.ParseInt(r.PathValue("seq"), 10, 64)
@@ -71,22 +66,7 @@ func (s *Server) uiSnapshot(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusNotFound, "snapshot_not_found", "error.snapshot-not-found")
 		return
 	}
-	snapshot, err := s.app.DB.Snapshot(namespace.ID, seq)
-	if err != nil {
-		s.logger.Error("read snapshot", "error", err)
-		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
-		return
-	}
-	if snapshot == nil {
-		s.fail(w, r, http.StatusNotFound, "snapshot_not_found", "error.snapshot-not-found")
-		return
-	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "{\"namespace\":%q,\"seq\":%d,\"createdAt\":%d,\"totalBytes\":%d,\"manifest\":",
-		namespace.Name, snapshot.Seq, snapshot.CreatedAt, snapshot.TotalBytes)
-	_, _ = io.WriteString(w, snapshot.Manifest)
-	_, _ = io.WriteString(w, "}\n")
+	s.serveSnapshot(w, r, name, seq, "snapshot_not_found", "error.snapshot-not-found")
 }
 
 func (s *Server) uiBlob(w http.ResponseWriter, r *http.Request) {
@@ -109,23 +89,4 @@ func (s *Server) uiBlob(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", mediaType)
 	http.ServeFile(w, r, path)
-}
-
-func (s *Server) namespace(w http.ResponseWriter, r *http.Request, name string) (namespace, bool) {
-	row, err := s.app.DB.NamespaceByName(name)
-	if err != nil {
-		s.logger.Error("read namespace", "error", err)
-		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
-		return namespace{}, false
-	}
-	if row == nil {
-		s.fail(w, r, http.StatusNotFound, "namespace_not_found", "error.namespace-not-found")
-		return namespace{}, false
-	}
-	return namespace{ID: row.ID, Name: row.Name}, true
-}
-
-type namespace struct {
-	ID   int64
-	Name string
 }
