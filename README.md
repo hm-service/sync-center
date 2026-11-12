@@ -55,7 +55,7 @@ python3 ../sync-center/tests/smoke.py   # 默认连 127.0.0.1:18080
 
 ## 客户端
 
-客户端模板在 `../sync-center/scripts/sync-center.ps1`，两个实现共用同一份协议，直接指向本服务的地址即可。
+客户端示例在 [scripts/sync-center.ps1](scripts/sync-center.ps1)（PowerShell 7+），把顶部的地址与 token 换成自己的即可；协议细节见 DESIGN.md 第 11 节。
 
 ## 垃圾回收
 
