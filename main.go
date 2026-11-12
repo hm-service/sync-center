@@ -52,6 +52,10 @@ func main() {
 	if !config.GCEnabled() {
 		logger.Info("gc api disabled", "reason", "GC_TOKEN is empty")
 	}
+	if config.GCInterval == 0 && !config.GCEnabled() {
+		// 两条回收路径都关掉了，blob 只会涨；让运维在日志里看到，而不是等磁盘满
+		logger.Warn("garbage collection is disabled", "reason", "GC_INTERVAL=0 and GC_TOKEN is empty: only the gc subcommand can collect")
+	}
 
 	application, err := app.New(config)
 	if err != nil {

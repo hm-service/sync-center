@@ -62,14 +62,15 @@ func (s *Server) routes() {
 	// 页面与静态资源共用一个兜底，避免 "GET /" 与 "/assets/" 的匹配度互相冲突
 	s.mux.Handle("/", s.gate(s.staticGate, http.HandlerFunc(s.site)))
 
-	// 登录单独限流：既不能挤占 /v1 的配额，也不能让 Argon2 并发堆爆内存
-	s.mux.Handle("POST /api/auth", s.gate(s.authGate, http.HandlerFunc(s.login)))
+	// 登录单独限流：槽位在 login 内取（恒定等待也在槽位外），既不挤占 /v1 的配额，
+	// 也不让 Argon2 并发堆爆内存；这里不能再套一层 authGate，否则同一个 channel 会被取两次。
+	s.mux.Handle("POST /api/auth", http.HandlerFunc(s.login))
 	s.mux.Handle("/api/auth", s.methodNotAllowed("POST"))
 
 	s.mux.Handle("GET /admin/api/namespaces", s.protected(s.adminNamespaces))
 	s.mux.Handle("GET /admin/api/namespaces/{name}/snapshots", s.protected(s.adminSnapshots))
-	s.mux.Handle("GET /admin/api/namespaces/{name}/snapshots/{seq}", s.protected(s.adminSnapshot))
-	// 下载不参与清理暂停：unlink 之后已打开的文件仍可读完
+	// 快照内容与 blob 下载不参与清理暂停：unlink 之后已打开的文件仍可读完
+	s.mux.Handle("GET /admin/api/namespaces/{name}/snapshots/{seq}", s.gate(s.apiGate, s.requireSession(http.HandlerFunc(s.adminSnapshot))))
 	s.mux.Handle("GET /admin/api/blob/{digest}", s.gate(s.apiGate, s.requireSession(http.HandlerFunc(s.adminBlob))))
 
 	// 运维接口：回收是全局的，只认 GC_TOKEN，所以自己不能被暂停锁包住（TryLock 会拿不到写锁）。
@@ -93,11 +94,13 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /v1/blobs/{hash}", s.gate(s.apiGate, http.HandlerFunc(s.getBlob)))
 	s.mux.Handle("/v1/blobs/{hash}", s.methodNotAllowed("GET, HEAD, PUT"))
 
-	s.mux.Handle("POST /v1/snapshots", s.guarded(s.apiGate, http.HandlerFunc(s.createSnapshot)))
+	// 提交与快照内容不参与清理暂停：提交的互斥由 Commit 的 flock 保证，
+	// 请求体与响应体的读写也不能握在锁里，否则一个慢客户端就能拖住回收。
+	s.mux.Handle("POST /v1/snapshots", s.gate(s.apiGate, http.HandlerFunc(s.createSnapshot)))
 	s.mux.Handle("GET /v1/snapshots", s.guarded(s.apiGate, http.HandlerFunc(s.listSnapshots)))
 	s.mux.Handle("/v1/snapshots", s.methodNotAllowed("GET, HEAD, POST"))
 
-	s.mux.Handle("GET /v1/snapshots/{seq}", s.guarded(s.apiGate, http.HandlerFunc(s.getSnapshot)))
+	s.mux.Handle("GET /v1/snapshots/{seq}", s.gate(s.apiGate, http.HandlerFunc(s.getSnapshot)))
 	s.mux.Handle("/v1/snapshots/{seq}", s.methodNotAllowed("GET, HEAD"))
 
 	s.mux.Handle("GET /v1/metadata", s.guarded(s.apiGate, http.HandlerFunc(s.metadata)))
@@ -192,7 +195,8 @@ func (s *Server) protected(handler http.HandlerFunc) http.Handler {
 }
 
 // guarded 在并发闸门之后再加一道暂停读锁：清理期间这些请求排队，通常只有毫秒级。
-// blob 传输与登录不参与，前者耗时长且不会被清理影响，后者恒定耗时 1 秒。
+// 只用在读取元数据这类毫秒级的接口上；blob 传输、快照内容与提交请求体的读写都不参与，
+// 它们耗时长且由客户端控制节奏，握在锁里会让回收无限期等下去。
 func (s *Server) guarded(sem chan struct{}, next http.Handler) http.Handler {
 	return s.gate(sem, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.app.Guard.RLock()

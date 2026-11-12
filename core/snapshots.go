@@ -20,6 +20,16 @@ import (
 // ErrConflict 表示提交携带的 parent 与当前 head 不一致。
 var ErrConflict = errors.New("parent does not match head")
 
+// DamagedError 表示某个快照文件读不出来；回收拒绝执行，因为它看不见其中的引用。
+type DamagedError struct {
+	Namespace string
+	File      string
+}
+
+func (e *DamagedError) Error() string {
+	return fmt.Sprintf("namespace %q has damaged snapshot %s", e.Namespace, e.File)
+}
+
 // KeepVersions 是每个 namespace 保留的快照数量。
 const KeepVersions = 10
 
@@ -223,7 +233,8 @@ func (s *Snapshot) WriteJSON(w io.Writer) error {
 
 // Commit 写入新快照。parent 为 nil 表示期望当前 namespace 没有快照。
 // 内容与 head 完全一致时不产生新版本。
-func (s *SnapshotStore) Commit(name string, parent *int64, manifest Manifest, total int64) (int64, error) {
+// verify 在共享锁内执行，调用方用它确认 manifest 依赖的 blob 仍未被回收。
+func (s *SnapshotStore) Commit(name string, parent *int64, manifest Manifest, total int64, verify func() error) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -249,6 +260,13 @@ func (s *SnapshotStore) Commit(name string, parent *int64, manifest Manifest, to
 	}
 	if expected != head.Seq {
 		return 0, ErrConflict
+	}
+
+	// 校验必须在锁内：校验通过到落盘之间，回收不能把 blob 删掉
+	if verify != nil {
+		if err := verify(); err != nil {
+			return 0, err
+		}
 	}
 
 	tmp, err := os.CreateTemp(s.tmp, "snapshot-*")
@@ -374,7 +392,7 @@ func (s *SnapshotStore) EachManifest(fn func(Manifest) error) error {
 		}
 		if len(damaged) > 0 {
 			// 回收会删 blob，读不出引用的快照不能当作没人引用
-			return fmt.Errorf("namespace %q has damaged snapshot %s", entry.Name(), damaged[0])
+			return &DamagedError{Namespace: entry.Name(), File: damaged[0]}
 		}
 		for _, meta := range metas {
 			manifest, err := s.readManifest(entry.Name(), meta.Seq)

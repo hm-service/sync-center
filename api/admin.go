@@ -2,6 +2,7 @@ package api
 
 import (
 	"crypto/subtle"
+	"errors"
 	"mime"
 	"net/http"
 	"os"
@@ -107,6 +108,12 @@ func (s *Server) collectGarbage(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 	removed, ran, err := s.app.TryCollectGarbage(app.GarbageGrace)
 	if err != nil {
+		// 损坏快照里的引用看不见，回收只能拒绝执行；把文件名交给运维，别让人去翻日志
+		var damaged *core.DamagedError
+		if errors.As(err, &damaged) {
+			s.fail(w, r, http.StatusConflict, "damaged_snapshot", "error.damaged-snapshot", damaged.Namespace+"/"+damaged.File)
+			return
+		}
 		s.logger.Error("collect garbage", "error", err)
 		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
 		return

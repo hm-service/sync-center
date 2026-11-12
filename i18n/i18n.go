@@ -40,6 +40,7 @@ var messages = map[string]message{
 	"error.invalid-limit":       {"limit 必须在 1 到 100 之间", "limit must be between 1 and 100"},
 	"error.busy":                {"服务繁忙，请稍后重试", "service is busy, try again later"},
 	"error.gc-running":          {"清理正在进行", "garbage collection is already running"},
+	"error.damaged-snapshot":    {"快照损坏，回收无法确定引用：%s", "damaged snapshot blocks garbage collection: %s"},
 }
 
 // T 取本地化文案；未知 key 原样返回，缺失配置会直接出现在界面上。

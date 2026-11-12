@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func testStore(t *testing.T) *SnapshotStore {
@@ -42,7 +43,7 @@ func seqPtr(value int64) *int64 { return new(value) }
 func TestCommitCreatesVersions(t *testing.T) {
 	store := testStore(t)
 
-	seq, err := store.Commit("default", nil, testManifest("a.txt"), 1)
+	seq, err := store.Commit("default", nil, testManifest("a.txt"), 1, nil)
 	if err != nil {
 		t.Fatalf("commit: %v", err)
 	}
@@ -50,7 +51,7 @@ func TestCommitCreatesVersions(t *testing.T) {
 		t.Fatalf("first seq = %d, want 1", seq)
 	}
 
-	seq, err = store.Commit("default", seqPtr(1), testManifest("a.txt", "b.txt"), 3)
+	seq, err = store.Commit("default", seqPtr(1), testManifest("a.txt", "b.txt"), 3, nil)
 	if err != nil {
 		t.Fatalf("commit: %v", err)
 	}
@@ -72,10 +73,10 @@ func TestCommitCreatesVersions(t *testing.T) {
 
 func TestCommitRejectsStaleParent(t *testing.T) {
 	store := testStore(t)
-	if _, err := store.Commit("default", nil, testManifest("a.txt"), 1); err != nil {
+	if _, err := store.Commit("default", nil, testManifest("a.txt"), 1, nil); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
-	_, err := store.Commit("default", nil, testManifest("b.txt"), 1)
+	_, err := store.Commit("default", nil, testManifest("b.txt"), 1, nil)
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("err = %v, want ErrConflict", err)
 	}
@@ -84,11 +85,11 @@ func TestCommitRejectsStaleParent(t *testing.T) {
 func TestCommitSkipsUnchangedManifest(t *testing.T) {
 	store := testStore(t)
 	manifest := testManifest("a.txt", "b.txt")
-	seq, err := store.Commit("default", nil, manifest, 3)
+	seq, err := store.Commit("default", nil, manifest, 3, nil)
 	if err != nil {
 		t.Fatalf("commit: %v", err)
 	}
-	again, err := store.Commit("default", new(seq), manifest, 3)
+	again, err := store.Commit("default", new(seq), manifest, 3, nil)
 	if err != nil {
 		t.Fatalf("commit: %v", err)
 	}
@@ -108,7 +109,7 @@ func TestCommitPrunesOldVersions(t *testing.T) {
 	store := testStore(t)
 	var parent *int64
 	for i := range KeepVersions + 3 {
-		seq, err := store.Commit("default", parent, testManifest(fmt.Sprintf("f%d.txt", i)), 1)
+		seq, err := store.Commit("default", parent, testManifest(fmt.Sprintf("f%d.txt", i)), 1, nil)
 		if err != nil {
 			t.Fatalf("commit %d: %v", i, err)
 		}
@@ -129,7 +130,7 @@ func TestCommitPrunesOldVersions(t *testing.T) {
 func TestWriteJSONStreamsManifest(t *testing.T) {
 	store := testStore(t)
 	manifest := testManifest("a.txt", "b/c.txt")
-	seq, err := store.Commit("default", nil, manifest, 3)
+	seq, err := store.Commit("default", nil, manifest, 3, nil)
 	if err != nil {
 		t.Fatalf("commit: %v", err)
 	}
@@ -175,7 +176,7 @@ func TestOpenMissingSnapshot(t *testing.T) {
 
 func TestListReportsMismatchedFileName(t *testing.T) {
 	store := testStore(t)
-	if _, err := store.Commit("default", nil, testManifest("a.txt"), 1); err != nil {
+	if _, err := store.Commit("default", nil, testManifest("a.txt"), 1, nil); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
 	source := filepath.Join(store.root, "default", "00000001.jsonl")
@@ -202,7 +203,7 @@ func TestListReportsMismatchedFileName(t *testing.T) {
 
 func TestEachManifestRejectsDamagedSnapshot(t *testing.T) {
 	store := testStore(t)
-	if _, err := store.Commit("default", nil, testManifest("a.txt"), 1); err != nil {
+	if _, err := store.Commit("default", nil, testManifest("a.txt"), 1, nil); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(store.root, "default", "00000002.jsonl"), []byte("not json\n"), 0o600); err != nil {
@@ -215,10 +216,10 @@ func TestEachManifestRejectsDamagedSnapshot(t *testing.T) {
 
 func TestEachManifest(t *testing.T) {
 	store := testStore(t)
-	if _, err := store.Commit("default", nil, testManifest("a.txt"), 1); err != nil {
+	if _, err := store.Commit("default", nil, testManifest("a.txt"), 1, nil); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
-	if _, err := store.Commit("default", seqPtr(1), testManifest("a.txt", "b.txt"), 3); err != nil {
+	if _, err := store.Commit("default", seqPtr(1), testManifest("a.txt", "b.txt"), 3, nil); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
 	count := 0
@@ -241,4 +242,69 @@ func mustRead(t *testing.T, path string) []byte {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return data
+}
+
+func TestCommitRunsVerifierBeforeWriting(t *testing.T) {
+	store := testStore(t)
+	rejected := errors.New("blob is gone")
+	if _, err := store.Commit("default", nil, testManifest("a.txt"), 1, func() error { return rejected }); !errors.Is(err, rejected) {
+		t.Fatalf("Commit() error = %v, want the verifier error", err)
+	}
+	metas, _, err := store.List("default", 0)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(metas) != 0 {
+		t.Fatalf("a rejected commit wrote %d snapshots", len(metas))
+	}
+}
+
+// 校验必须在共享锁内跑完：否则外部 gc 能在"校验通过"与"落盘"之间删掉 blob。
+func TestCommitHoldsSharedLockDuringVerification(t *testing.T) {
+	store := testStore(t)
+	acquired := make(chan struct{})
+	verify := func() error {
+		go func() {
+			lock, err := store.LockAll()
+			if err != nil {
+				t.Errorf("take exclusive lock: %v", err)
+				return
+			}
+			lock.Close()
+			close(acquired)
+		}()
+		select {
+		case <-acquired:
+			t.Error("exclusive lock was granted while the verifier was still running")
+		case <-time.After(100 * time.Millisecond):
+		}
+		return nil
+	}
+	if _, err := store.Commit("default", nil, testManifest("a.txt"), 1, verify); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	select {
+	case <-acquired:
+	case <-time.After(5 * time.Second):
+		t.Fatal("exclusive lock was not granted after the commit finished")
+	}
+}
+
+func TestEachManifestReportsDamagedFile(t *testing.T) {
+	store := testStore(t)
+	if _, err := store.Commit("default", nil, testManifest("a.txt"), 1, nil); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	broken := filepath.Join(store.root, "default", "00000002.jsonl")
+	if err := os.WriteFile(broken, []byte("garbage\n"), 0o600); err != nil {
+		t.Fatalf("write damaged snapshot: %v", err)
+	}
+	err := store.EachManifest(func(Manifest) error { return nil })
+	var damaged *DamagedError
+	if !errors.As(err, &damaged) {
+		t.Fatalf("EachManifest() error = %v, want *DamagedError", err)
+	}
+	if damaged.Namespace != "default" || damaged.File != "00000002.jsonl" {
+		t.Fatalf("DamagedError = %+v", damaged)
+	}
 }

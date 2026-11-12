@@ -174,23 +174,16 @@ func (s *Server) createSnapshot(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusUnprocessableEntity, "invalid_manifest", "error.invalid-manifest", err.Error())
 		return
 	}
-	for _, entry := range manifest.Files {
-		size, exists := s.app.Blobs.Stat(entry.Hash)
-		if !exists {
-			s.fail(w, r, http.StatusUnprocessableEntity, "missing_blob", "error.missing-blob", entry.Hash)
-			return
-		}
-		if size != entry.Size {
-			s.fail(w, r, http.StatusUnprocessableEntity, "blob_size_mismatch", "error.blob-size-mismatch", entry.Hash)
-			return
-		}
-	}
-
-	seq, err := s.app.Snapshots.Commit(p.Namespace, request.Parent, manifest, total)
+	seq, err := s.app.Snapshots.Commit(p.Namespace, request.Parent, manifest, total, s.blobCheck(manifest))
 	if errors.Is(err, core.ErrConflict) {
 		// parent 已过期，本次提交注定失败；释放租约让客户端重新拉取后立即重试
 		s.app.Leases.Release(request.LeaseID, p.Namespace)
 		s.fail(w, r, http.StatusConflict, "conflict", "error.conflict")
+		return
+	}
+	var check *blobCheckError
+	if errors.As(err, &check) {
+		s.fail(w, r, http.StatusUnprocessableEntity, check.code, check.key, check.hash)
 		return
 	}
 	if err != nil {
@@ -201,6 +194,32 @@ func (s *Server) createSnapshot(w http.ResponseWriter, r *http.Request) {
 	s.app.Leases.Release(request.LeaseID, p.Namespace)
 	httpx.JSON(w, http.StatusCreated, map[string]any{"seq": seq})
 }
+
+// blobCheck 在提交的共享锁内执行：blob 必须仍在，且大小与 manifest 一致。
+// 放在锁内是为了让回收无法在"校验通过"与"快照落盘"之间删掉被引用的 blob。
+func (s *Server) blobCheck(manifest core.Manifest) func() error {
+	return func() error {
+		for _, entry := range manifest.Files {
+			size, exists := s.app.Blobs.Stat(entry.Hash)
+			if !exists {
+				return &blobCheckError{code: "missing_blob", key: "error.missing-blob", hash: entry.Hash}
+			}
+			if size != entry.Size {
+				return &blobCheckError{code: "blob_size_mismatch", key: "error.blob-size-mismatch", hash: entry.Hash}
+			}
+		}
+		return nil
+	}
+}
+
+// blobCheckError 让 handler 把校验失败映射成对应的 422 错误码。
+type blobCheckError struct {
+	code string
+	key  string
+	hash string
+}
+
+func (e *blobCheckError) Error() string { return e.code + ": " + e.hash }
 
 func (s *Server) latestSnapshot(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.require(w, r, false)
