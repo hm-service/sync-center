@@ -53,3 +53,44 @@ func TestNamespacePattern(t *testing.T) {
 		})
 	}
 }
+func TestTokenIndexRejectsDuplicates(t *testing.T) {
+	cases := []struct {
+		name       string
+		namespaces []Namespace
+		ok         bool
+	}{
+		{
+			name: "distinct tokens",
+			namespaces: []Namespace{
+				{Name: "default", Tokens: []string{"sync_default_rw_2026a:rw", "sync_default_ro_2026a:r"}},
+			},
+			ok: true,
+		},
+		{
+			name: "same token twice in one namespace",
+			namespaces: []Namespace{
+				{Name: "default", Tokens: []string{"sync_default_rw_2026a:rw", "sync_default_rw_2026a:r"}},
+			},
+			ok: false,
+		},
+		{
+			name: "same token in two namespaces",
+			namespaces: []Namespace{
+				{Name: "default", Tokens: []string{"sync_default_rw_2026a:rw"}},
+				{Name: "work", Tokens: []string{"sync_default_rw_2026a:r"}},
+			},
+			ok: false,
+		},
+	}
+	for _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			_, err := NewTokenIndex(item.namespaces)
+			if item.ok && err != nil {
+				t.Fatalf("expected valid, got %v", err)
+			}
+			if !item.ok && err == nil {
+				t.Fatal("expected an error for a duplicate token")
+			}
+		})
+	}
+}

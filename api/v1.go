@@ -82,8 +82,17 @@ func (s *Server) putBlob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, exists := s.app.Blobs.Stat(hash); exists {
-		// 已存在也要把请求体读完，否则这条连接无法复用
-		_, _ = io.Copy(io.Discard, r.Body)
+		// 已存在也要把请求体读完，否则这条连接无法复用；但同样受大小上限约束
+		r.Body = http.MaxBytesReader(w, r.Body, core.MaxBlobSize+1)
+		if _, err := io.Copy(io.Discard, r.Body); err != nil {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				s.fail(w, r, http.StatusRequestEntityTooLarge, "too_large", "error.too-large")
+				return
+			}
+			s.fail(w, r, http.StatusBadRequest, "invalid_body", "error.invalid-body")
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -111,12 +120,11 @@ func (s *Server) headBlob(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusUnprocessableEntity, "invalid_digest", "error.invalid-digest")
 		return
 	}
-	size, exists := s.app.Blobs.Stat(hash)
-	if !exists {
+	// 204 响应不能带 Content-Length，HEAD 只表示存在性
+	if _, exists := s.app.Blobs.Stat(hash); !exists {
 		s.fail(w, r, http.StatusNotFound, "not_found", "error.blob-not-found")
 		return
 	}
-	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -146,6 +154,11 @@ func (s *Server) createSnapshot(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSnapshotBody)
 	var request snapshotRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			s.fail(w, r, http.StatusRequestEntityTooLarge, "too_large", "error.too-large")
+			return
+		}
 		s.fail(w, r, http.StatusUnprocessableEntity, "invalid_body", "error.invalid-body")
 		return
 	}
@@ -196,9 +209,20 @@ func (s *Server) latestSnapshot(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	metas, err := s.app.Snapshots.List(p.Namespace, 1)
+	metas, damaged, err := s.app.Snapshots.List(p.Namespace, 1)
 	if err != nil {
 		s.logger.Error("read head", "error", err)
+		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
+		return
+	}
+	s.warnDamaged(p.Namespace, damaged)
+	var head int64
+	if len(metas) > 0 {
+		head = metas[0].Seq
+	}
+	if core.DamagedAhead(damaged, head) {
+		// 更新的快照读不出来时不能把旧版本当作 latest，否则客户端会拉回旧状态
+		s.logger.Error("newest snapshot is damaged", "namespace", p.Namespace)
 		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
 		return
 	}
@@ -223,12 +247,13 @@ func (s *Server) listSnapshots(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = parsed
 	}
-	metas, err := s.app.Snapshots.List(p.Namespace, limit)
+	metas, damaged, err := s.app.Snapshots.List(p.Namespace, limit)
 	if err != nil {
 		s.logger.Error("list snapshots", "error", err)
 		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
 		return
 	}
+	s.warnDamaged(p.Namespace, damaged)
 	httpx.JSON(w, http.StatusOK, map[string]any{"snapshots": snapshotMetas(metas)})
 }
 
@@ -255,9 +280,19 @@ func (s *Server) metadata(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	metas, err := s.app.Snapshots.List(p.Namespace, metadataPage)
+	metas, damaged, err := s.app.Snapshots.List(p.Namespace, metadataPage)
 	if err != nil {
 		s.logger.Error("read metadata", "error", err)
+		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
+		return
+	}
+	s.warnDamaged(p.Namespace, damaged)
+	var head int64
+	if len(metas) > 0 {
+		head = metas[0].Seq
+	}
+	if core.DamagedAhead(damaged, head) {
+		s.logger.Error("newest snapshot is damaged", "namespace", p.Namespace)
 		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
 		return
 	}
@@ -289,6 +324,12 @@ func (s *Server) serveSnapshot(w http.ResponseWriter, r *http.Request, namespace
 	w.WriteHeader(http.StatusOK)
 	if err := snapshot.WriteJSON(w); err != nil {
 		s.logger.Error("write snapshot", "namespace", namespace, "seq", seq, "error", err)
+	}
+}
+
+func (s *Server) warnDamaged(namespace string, damaged []string) {
+	for _, name := range damaged {
+		s.logger.Warn("damaged snapshot skipped", "namespace", namespace, "file", name)
 	}
 }
 

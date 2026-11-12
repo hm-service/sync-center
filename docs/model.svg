@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="380" viewBox="0 0 1000 380" font-family="system-ui, -apple-system, 'Noto Sans CJK SC', 'PingFang SC', sans-serif">
+  <rect width="1000" height="380" fill="#ffffff"/>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+
+  <text x="90" y="56" font-size="18" font-weight="600" fill="#0f172a">数据模型</text>
+
+  <rect x="90" y="140" width="200" height="70" rx="8" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="190" y="172" text-anchor="middle" font-size="15" font-weight="600" fill="#0f172a">namespace</text>
+  <text x="190" y="192" text-anchor="middle" font-size="11" fill="#64748b">name · 目录 · 时间</text>
+
+  <rect x="400" y="140" width="200" height="70" rx="8" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="500" y="172" text-anchor="middle" font-size="15" font-weight="600" fill="#0f172a">snapshot</text>
+  <text x="500" y="192" text-anchor="middle" font-size="11" fill="#64748b">seq · createdAt · totalBytes · 条目行</text>
+
+  <rect x="710" y="140" width="200" height="70" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="810" y="172" text-anchor="middle" font-size="15" font-weight="600" fill="#0f172a">blob</text>
+  <text x="810" y="192" text-anchor="middle" font-size="11" fill="#64748b">hash · size · mtime</text>
+
+  <line x1="290" y1="175" x2="400" y2="175" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="600" y1="175" x2="710" y2="175" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+
+  <text x="345" y="167" text-anchor="middle" font-size="11" fill="#64748b">1 : N</text>
+  <text x="655" y="167" text-anchor="middle" font-size="11" fill="#64748b">N : M</text>
+
+  <text x="500" y="245" text-anchor="middle" font-size="12" fill="#64748b">快照首行是元数据，其余每行指向一个 blob</text>
+
+  <text x="90" y="330" font-size="12" fill="#94a3b8">快照与 blob 都是文件，不建表；token 与 lease 只存在于内存，由配置文件注入。</text>
+</svg>

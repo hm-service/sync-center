@@ -11,7 +11,11 @@ import (
 	"sync-center/httpx"
 )
 
-const sessionCookie = "session"
+const (
+	sessionCookie = "session"
+	// authReadTimeout 限制读取登录请求体的时间，半开连接不能长期占用登录槽位。
+	authReadTimeout = 15 * time.Second
+)
 
 type authRequest struct {
 	Token string `json:"token"`
@@ -19,15 +23,30 @@ type authRequest struct {
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
-	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
-	var request authRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		s.fail(w, r, http.StatusBadRequest, "invalid_body", "error.invalid-body")
+	select {
+	case s.authGate <- struct{}{}:
+	case <-r.Context().Done():
+		return
+	case <-time.After(gateWait):
+		s.fail(w, r, http.StatusServiceUnavailable, "busy", "error.busy")
 		return
 	}
 
-	valid := request.Token != "" && core.VerifySecret(s.app.Config.AuthHash, request.Token)
+	controller := http.NewResponseController(w)
+	_ = controller.SetReadDeadline(time.Now().Add(authReadTimeout))
+	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
+	var request authRequest
+	decodeErr := json.NewDecoder(r.Body).Decode(&request)
+	valid := decodeErr == nil && request.Token != "" && core.VerifySecret(s.app.Config.AuthHash, request.Token)
+	<-s.authGate
+	_ = controller.SetReadDeadline(time.Time{})
+
+	// 恒定耗时的等待放在槽位之外，登录失败不会拖住其他登录
 	s.waitVerification(started)
+	if decodeErr != nil {
+		s.fail(w, r, http.StatusBadRequest, "invalid_body", "error.invalid-body")
+		return
+	}
 	if !valid {
 		s.fail(w, r, http.StatusUnauthorized, "unauthorized", "error.invalid-token")
 		return

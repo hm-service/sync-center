@@ -16,12 +16,13 @@ const uiPageSize = 20
 func (s *Server) uiNamespaces(w http.ResponseWriter, r *http.Request) {
 	items := make([]map[string]any, 0, len(s.app.Namespaces))
 	for _, name := range s.app.Namespaces {
-		info, err := s.app.Snapshots.Info(name)
+		info, damaged, err := s.app.Snapshots.Info(name)
 		if err != nil {
 			s.logger.Error("read namespace", "namespace", name, "error", err)
 			s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
 			return
 		}
+		s.warnDamaged(name, damaged)
 		items = append(items, map[string]any{
 			"name":      info.Name,
 			"createdAt": info.CreatedAt,
@@ -46,12 +47,13 @@ func (s *Server) uiSnapshots(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = parsed
 	}
-	metas, err := s.app.Snapshots.List(name, limit)
+	metas, damaged, err := s.app.Snapshots.List(name, limit)
 	if err != nil {
 		s.logger.Error("list snapshots", "namespace", name, "error", err)
 		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
 		return
 	}
+	s.warnDamaged(name, damaged)
 	httpx.JSON(w, http.StatusOK, map[string]any{"namespace": name, "snapshots": snapshotMetas(metas)})
 }
 

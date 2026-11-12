@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -16,12 +17,20 @@ import (
 
 const contentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 
+// gateWait 限制请求在并发闸门前排队的时间，避免半开连接无限占位。
+// authSlots 是登录的独立预算：Argon2 每次约占 19 MiB，且恒定耗时 1 秒。
+const (
+	gateWait  = 10 * time.Second
+	authSlots = 2
+)
+
 type Server struct {
 	app        *app.App
 	mux        *http.ServeMux
 	static     fs.FS
 	logger     *slog.Logger
 	apiGate    chan struct{}
+	authGate   chan struct{}
 	staticGate chan struct{}
 }
 
@@ -32,6 +41,7 @@ func New(application *app.App, static fs.FS, logger *slog.Logger) *Server {
 		static:     static,
 		logger:     logger,
 		apiGate:    make(chan struct{}, application.Config.MaxAPI),
+		authGate:   make(chan struct{}, authSlots),
 		staticGate: make(chan struct{}, application.Config.MaxStatic),
 	}
 	server.routes()
@@ -52,7 +62,8 @@ func (s *Server) routes() {
 	// 页面与静态资源共用一个兜底，避免 "GET /" 与 "/assets/" 的匹配度互相冲突
 	s.mux.Handle("/", s.gate(s.staticGate, http.HandlerFunc(s.site)))
 
-	s.mux.Handle("POST /api/auth", s.gate(s.apiGate, http.HandlerFunc(s.login)))
+	// 登录单独限流：既不能挤占 /v1 的配额，也不能让 Argon2 并发堆爆内存
+	s.mux.Handle("POST /api/auth", s.gate(s.authGate, http.HandlerFunc(s.login)))
 	s.mux.Handle("/api/auth", s.methodNotAllowed("POST"))
 
 	s.mux.Handle("GET /ui/api/namespaces", s.protected(s.uiNamespaces))
@@ -171,9 +182,15 @@ func (s *Server) protected(handler http.HandlerFunc) http.Handler {
 
 func (s *Server) gate(sem chan struct{}, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sem <- struct{}{}
-		defer func() { <-sem }()
-		next.ServeHTTP(w, r)
+		select {
+		case sem <- struct{}{}:
+			defer func() { <-sem }()
+			next.ServeHTTP(w, r)
+		case <-r.Context().Done():
+			return
+		case <-time.After(gateWait):
+			s.fail(w, r, http.StatusServiceUnavailable, "busy", "error.busy")
+		}
 	})
 }
 
@@ -223,6 +240,28 @@ func (r *recorder) Write(body []byte) (int, error) {
 		r.status = http.StatusOK
 	}
 	return r.ResponseWriter.Write(body)
+}
+
+// Unwrap 让 http.ResponseController 能拿到真正的 ResponseWriter（读超时、Flush）。
+func (r *recorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
+}
+
+// ReadFrom 转发给底层，让 ServeFile 走 sendfile 而不是用户态拷贝。
+func (r *recorder) ReadFrom(src io.Reader) (int64, error) {
+	if r.status == 0 {
+		r.status = http.StatusOK
+	}
+	if readerFrom, ok := r.ResponseWriter.(io.ReaderFrom); ok {
+		return readerFrom.ReadFrom(src)
+	}
+	return io.Copy(r.ResponseWriter, src)
+}
+
+func (r *recorder) Flush() {
+	if flusher, ok := r.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 func (s *Server) log(next http.Handler) http.Handler {

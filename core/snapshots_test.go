@@ -57,7 +57,7 @@ func TestCommitCreatesVersions(t *testing.T) {
 		t.Fatalf("second seq = %d, want 2", seq)
 	}
 
-	metas, err := store.List("default", 0)
+	metas, _, err := store.List("default", 0)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestCommitPrunesOldVersions(t *testing.T) {
 		}
 		parent = seqPtr(seq)
 	}
-	metas, err := store.List("default", 0)
+	metas, _, err := store.List("default", 0)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestOpenMissingSnapshot(t *testing.T) {
 	}
 }
 
-func TestListRejectsMismatchedFileName(t *testing.T) {
+func TestListReportsMismatchedFileName(t *testing.T) {
 	store := testStore(t)
 	if _, err := store.Commit("default", nil, testManifest("a.txt"), 1); err != nil {
 		t.Fatalf("commit: %v", err)
@@ -181,8 +181,34 @@ func TestListRejectsMismatchedFileName(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(store.root, "default", "00000009.jsonl"), mustRead(t, source), 0o600); err != nil {
 		t.Fatalf("write copy: %v", err)
 	}
-	if _, err := store.List("default", 0); err == nil {
-		t.Fatal("list accepted a snapshot whose seq does not match its file name")
+	metas, damaged, err := store.List("default", 0)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(metas) != 1 || metas[0].Seq != 1 {
+		t.Fatalf("metas = %+v, want only seq 1", metas)
+	}
+	if len(damaged) != 1 || damaged[0] != "00000009.jsonl" {
+		t.Fatalf("damaged = %+v, want [00000009.jsonl]", damaged)
+	}
+	if !DamagedAhead(damaged, metas[0].Seq) {
+		t.Fatal("DamagedAhead missed a damaged newer snapshot")
+	}
+	if DamagedAhead(damaged, 9) {
+		t.Fatal("DamagedAhead treated an older damaged snapshot as newer")
+	}
+}
+
+func TestEachManifestRejectsDamagedSnapshot(t *testing.T) {
+	store := testStore(t)
+	if _, err := store.Commit("default", nil, testManifest("a.txt"), 1); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(store.root, "default", "00000002.jsonl"), []byte("not json\n"), 0o600); err != nil {
+		t.Fatalf("write damaged: %v", err)
+	}
+	if err := store.EachManifest(func(Manifest) error { return nil }); err == nil {
+		t.Fatal("EachManifest accepted a damaged snapshot")
 	}
 }
 

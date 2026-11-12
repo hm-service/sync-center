@@ -76,13 +76,6 @@ func Normalize(raw json.RawMessage) (Manifest, int64, error) {
 	return manifest, total, nil
 }
 
-// Parse 把存储的 manifest 文本解回结构，供 WebUI 与校验使用。
-func Parse(text string) (Manifest, error) {
-	var manifest Manifest
-	err := json.Unmarshal([]byte(text), &manifest)
-	return manifest, err
-}
-
 // IsHash 判断字符串是否是可用的 blob 摘要。
 func IsHash(value string) bool {
 	return hex64.MatchString(value)

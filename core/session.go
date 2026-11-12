@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -113,4 +112,3 @@ func (s *Sessions) sign(payload string) []byte {
 	return mac.Sum(nil)
 }
 
-var errMissingSecret = errors.New("secret is not configured")

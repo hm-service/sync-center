@@ -2,7 +2,7 @@
 
 通用同步中心：服务端只保存不可变快照，冲突取舍与删除保护由客户端负责。完整设计见 [DESIGN.md](DESIGN.md)。
 
-Go 实现，产物是单个静态二进制。协议与数据布局和 `../sync-center` 的 Python 原型一致，两边可以指向同一份数据目录。
+Go 实现，产物是单个静态二进制。HTTP 协议与 `../sync-center` 的 Python 原型一致；存储布局不同（Go 用 `namespaces/<ns>/*.jsonl`，Python 用 `sync.db`），两者不能指向同一份数据目录，混用会让垃圾回收删掉对侧仍在引用的 blob。
 
 ![Web UI](docs/ui.png)
 
@@ -51,7 +51,7 @@ token 主体为 16-128 位字母、数字或下划线，namespace 名称为 1-63
 python3 ../sync-center/tests/smoke.py   # 默认连 127.0.0.1:18080
 ```
 
-测试假设配置里有 `TOKENRW:rw`、`TOKENR:r`（namespace `default`）与 `TOKENWORK:rw`（namespace `work`）。
+测试假设配置使用 `sync_default_rw_2026a:rw`、`sync_default_ro_2026a:r`（namespace `default`）与 `sync_work_rw_2026a:rw`（namespace `work`）。
 
 ## 客户端
 
@@ -63,7 +63,7 @@ python3 ../sync-center/tests/smoke.py   # 默认连 127.0.0.1:18080
 DATA_DIR=$PWD/.data ./.dist/app-linux-amd64 gc
 ```
 
-删除不再被任何存活快照引用、且超过一小时没有变动的 blob，以及残留的临时文件。
+删除不再被任何存活快照引用、且超过一小时没有变动的 blob，以及残留的临时文件。只需要 `DATA_DIR`，不需要面板口令与会话密钥；运行期间提交会等回收结束。
 
 ## 性能
 
@@ -81,7 +81,7 @@ DATA_DIR=$PWD/.data ./.dist/app-linux-amd64 gc
 
 真实部署的瓶颈是网络带宽与客户端的哈希扫描，不是服务端。
 
-内存：空载约 15 MB；100 MiB 的上传与下载几乎不占内存（流式写盘 + `sendfile`）；提交 10 万条 manifest 时峰值约 165 MB，`GOGC=50` 时降到 131 MB。一万条以内稳定在 30 MB 上下。
+内存：空载约 28 MB；单个快照的读取几乎不增加 RSS（逐行流式），8 个并发读取 14.6 MB 快照峰值约 59 MB、结束后回落到 16 MB；提交 10 万条 manifest 峰值约 85 MB。一千个文件的提交约 12 ms。
 
 ## 限制
 

@@ -38,32 +38,7 @@ var messages = map[string]message{
 	"error.snapshot-not-found":  {"快照不存在", "snapshot does not exist"},
 	"error.namespace-not-found": {"namespace 不存在", "namespace not found"},
 	"error.invalid-limit":       {"limit 必须在 1 到 100 之间", "limit must be between 1 and 100"},
-
-	"ui.title":             {"sync-center", "sync-center"},
-	"ui.readonly":          {"只读浏览", "read-only"},
-	"ui.namespaces":        {"命名空间", "Namespaces"},
-	"ui.snapshots":         {"快照", "Snapshots"},
-	"ui.files":             {"文件", "Files"},
-	"ui.preview":           {"预览", "Preview"},
-	"ui.updated-at":        {"更新于 %s", "updated %s"},
-	"ui.select-namespace":  {"先选一个 namespace", "select a namespace first"},
-	"ui.select-snapshot":   {"先选一个 snapshot", "select a snapshot first"},
-	"ui.no-namespaces":     {"没有 namespace", "no namespaces"},
-	"ui.no-snapshots":      {"没有快照", "no snapshots"},
-	"ui.empty-snapshot":    {"空快照", "empty snapshot"},
-	"ui.click-file":        {"点一个文件查看", "click a file to preview"},
-	"ui.preview-too-large": {"%s · 超过 256 KB，不预览", "%s · larger than 256 KB, not previewed"},
-	"ui.download":          {"下载 %s", "download %s"},
-	"ui.binary-file":       {"%s · 二进制文件", "%s · binary file"},
-	"ui.file-count":        {"%d 个文件", "%d files"},
-	"ui.load-failed":       {"加载失败", "load failed"},
-	"ui.need-login":        {"需要登录", "authentication required"},
-
-	"ui.login-title":   {"输入访问口令", "enter the access token"},
-	"ui.login-submit":  {"进入", "sign in"},
-	"ui.login-invalid": {"口令不正确", "invalid token"},
-	"ui.login-failed":  {"登录失败：%d", "sign-in failed: %d"},
-	"ui.login-offline": {"无法连接服务", "cannot reach the service"},
+	"error.busy":                {"服务繁忙，请稍后重试", "service is busy, try again later"},
 }
 
 // T 取本地化文案；未知 key 原样返回，缺失配置会直接出现在界面上。

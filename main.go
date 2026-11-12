@@ -20,6 +20,26 @@ import (
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
+	// gc 只碰数据目录，不加载 namespace 配置与面板密钥
+	if len(os.Args) > 1 {
+		if os.Args[1] != "gc" {
+			logger.Error("unknown command", "command", os.Args[1], "usage", "gc")
+			os.Exit(1)
+		}
+		data, err := app.OpenData(core.DataDirFromEnv())
+		if err != nil {
+			logger.Error("open data dir", "error", err)
+			os.Exit(1)
+		}
+		removed, err := data.CollectGarbage(app.GarbageGrace)
+		if err != nil {
+			logger.Error("collect garbage", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("garbage collected", "removed", removed)
+		return
+	}
+
 	config, err := core.LoadConfig()
 	if err != nil {
 		logger.Error("load config", "error", err)
@@ -34,25 +54,13 @@ func main() {
 		logger.Error("start application", "error", err)
 		os.Exit(1)
 	}
-	if len(os.Args) > 1 {
-		if os.Args[1] != "gc" {
-			logger.Error("unknown command", "command", os.Args[1], "usage", "gc")
-			os.Exit(1)
-		}
-		removed, err := application.CollectGarbage(app.GarbageGrace)
-		if err != nil {
-			logger.Error("collect garbage", "error", err)
-			os.Exit(1)
-		}
-		logger.Info("garbage collected", "removed", removed)
-		return
-	}
 
 	addr := net.JoinHostPort(config.Host, strconv.Itoa(config.Port))
 	server := &http.Server{
 		Addr:              addr,
 		Handler:           api.New(application, frontendFS(), logger).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	failures := make(chan error, 1)

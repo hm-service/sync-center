@@ -45,6 +45,7 @@ type NamespaceInfo struct {
 type SnapshotStore struct {
 	root string
 	tmp  string
+	lock string
 	mu   sync.Mutex
 }
 
@@ -56,7 +57,17 @@ func NewSnapshotStore(dataDir string) (*SnapshotStore, error) {
 			return nil, err
 		}
 	}
-	return &SnapshotStore{root: root, tmp: tmp}, nil
+	return &SnapshotStore{
+		root: root,
+		tmp:  tmp,
+		lock: filepath.Join(dataDir, ".lock"),
+	}, nil
+}
+
+// LockAll 取独占锁，让垃圾回收期间没有提交在改引用集。
+// 只在独立进程里调用：同进程再取共享锁会与自己的独占锁互等。
+func (s *SnapshotStore) LockAll() (*FileLock, error) {
+	return LockFile(s.lock, true)
 }
 
 // Ensure 创建 namespace 目录；namespace 只来自配置，名称在配置层已校验。
@@ -73,17 +84,19 @@ func (s *SnapshotStore) file(name string, seq int64) string {
 	return filepath.Join(s.dir(name), fmt.Sprintf("%08d.jsonl", seq))
 }
 
-// List 按 seq 从新到旧返回元数据；limit <= 0 表示不限制。
-func (s *SnapshotStore) List(name string, limit int) ([]SnapshotMeta, error) {
+// List 按 seq 从新到旧返回可读的元数据；limit <= 0 表示不限制。
+// 第二个返回值是无法解析的文件名。并发裁剪导致文件消失不算损坏，直接跳过。
+func (s *SnapshotStore) List(name string, limit int) ([]SnapshotMeta, []string, error) {
 	dir := s.dir(name)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil
+			return nil, nil, nil
 		}
-		return nil, err
+		return nil, nil, err
 	}
 	metas := make([]SnapshotMeta, 0, len(entries))
+	var damaged []string
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -93,11 +106,12 @@ func (s *SnapshotStore) List(name string, limit int) ([]SnapshotMeta, error) {
 			continue
 		}
 		meta, err := readMeta(filepath.Join(dir, entry.Name()))
-		if err != nil {
-			return nil, err
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
 		}
-		if meta.Seq != seq {
-			return nil, fmt.Errorf("%s: seq %d does not match file name", entry.Name(), meta.Seq)
+		if err != nil || meta.Seq != seq {
+			damaged = append(damaged, entry.Name())
+			continue
 		}
 		metas = append(metas, meta)
 	}
@@ -105,29 +119,40 @@ func (s *SnapshotStore) List(name string, limit int) ([]SnapshotMeta, error) {
 	if limit > 0 && len(metas) > limit {
 		metas = metas[:limit]
 	}
-	return metas, nil
+	return metas, damaged, nil
+}
+
+// DamagedAhead 报告损坏的文件里是否有比 head 更新的版本。
+// 有的话不能把更旧的快照当作 latest 返回，否则客户端会拉回旧状态。
+func DamagedAhead(damaged []string, head int64) bool {
+	for _, name := range damaged {
+		if seq, ok := parseSeq(name); ok && seq > head {
+			return true
+		}
+	}
+	return false
 }
 
 // Info 返回 namespace 的时间摘要：最早与最近一次快照的时间。
-func (s *SnapshotStore) Info(name string) (NamespaceInfo, error) {
-	metas, err := s.List(name, 0)
+func (s *SnapshotStore) Info(name string) (NamespaceInfo, []string, error) {
+	metas, damaged, err := s.List(name, 0)
 	if err != nil {
-		return NamespaceInfo{}, err
+		return NamespaceInfo{}, nil, err
 	}
 	info := NamespaceInfo{Name: name}
 	if len(metas) == 0 {
 		// 没有快照时用目录时间，避免空 namespace 显示 1970
 		stat, err := os.Stat(s.dir(name))
 		if err != nil {
-			return NamespaceInfo{}, err
+			return NamespaceInfo{}, damaged, err
 		}
 		info.CreatedAt = stat.ModTime().Unix()
 		info.UpdatedAt = info.CreatedAt
-		return info, nil
+		return info, damaged, nil
 	}
 	info.CreatedAt = metas[len(metas)-1].CreatedAt
 	info.UpdatedAt = metas[0].CreatedAt
-	return info, nil
+	return info, damaged, nil
 }
 
 // Snapshot 是已定位并打开的快照文件，读取时逐行流式处理。
@@ -202,7 +227,14 @@ func (s *SnapshotStore) Commit(name string, parent *int64, manifest Manifest, to
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	metas, err := s.List(name, 1)
+	// 共享锁与垃圾回收的独占锁互斥：回收期间不会有人改引用集
+	lock, err := LockFile(s.lock, false)
+	if err != nil {
+		return 0, err
+	}
+	defer lock.Close()
+
+	metas, _, err := s.List(name, 1)
 	if err != nil {
 		return 0, err
 	}
@@ -270,6 +302,10 @@ func (s *SnapshotStore) Commit(name string, parent *int64, manifest Manifest, to
 	if identical && headScanner.Scan() {
 		identical = false
 	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return 0, err
+	}
 	if err := tmp.Close(); err != nil {
 		return 0, err
 	}
@@ -278,6 +314,10 @@ func (s *SnapshotStore) Commit(name string, parent *int64, manifest Manifest, to
 	}
 
 	if err := os.Rename(tmp.Name(), s.file(name, seq)); err != nil {
+		return 0, err
+	}
+	// rename 之后同步目录，否则崩溃时文件名可能先于内容落盘
+	if err := syncDir(s.dir(name)); err != nil {
 		return 0, err
 	}
 	s.prune(name, seq-KeepVersions)
@@ -328,9 +368,13 @@ func (s *SnapshotStore) EachManifest(fn func(Manifest) error) error {
 		if !entry.IsDir() {
 			continue
 		}
-		metas, err := s.List(entry.Name(), 0)
+		metas, damaged, err := s.List(entry.Name(), 0)
 		if err != nil {
 			return err
+		}
+		if len(damaged) > 0 {
+			// 回收会删 blob，读不出引用的快照不能当作没人引用
+			return fmt.Errorf("namespace %q has damaged snapshot %s", entry.Name(), damaged[0])
 		}
 		for _, meta := range metas {
 			manifest, err := s.readManifest(entry.Name(), meta.Seq)

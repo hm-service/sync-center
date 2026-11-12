@@ -24,8 +24,11 @@ func NewTokenIndex(namespaces []Namespace) (*TokenIndex, error) {
 				return nil, err
 			}
 			digest := sha256.Sum256([]byte(body))
-			if previous, ok := index[digest]; ok && previous.Namespace != namespace.Name {
-				return nil, fmt.Errorf("token assigned to multiple namespaces")
+			if previous, ok := index[digest]; ok {
+				if previous.Namespace != namespace.Name {
+					return nil, fmt.Errorf("token assigned to multiple namespaces")
+				}
+				return nil, fmt.Errorf("namespace %q declares the same token twice", namespace.Name)
 			}
 			index[digest] = Principal{Namespace: namespace.Name, CanWrite: perm == "rw"}
 		}

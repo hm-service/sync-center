@@ -61,6 +61,9 @@ func (b *BlobStore) Write(hash string, r io.Reader) (int64, error) {
 
 	hasher := sha256.New()
 	size, err := io.Copy(io.MultiWriter(tmp, hasher), io.LimitReader(r, b.max+1))
+	if err == nil {
+		err = tmp.Sync()
+	}
 	if closeErr := tmp.Close(); err == nil {
 		err = closeErr
 	}
@@ -79,6 +82,10 @@ func (b *BlobStore) Write(hash string, r io.Reader) (int64, error) {
 		return 0, err
 	}
 	if err := os.Rename(tmp.Name(), target); err != nil {
+		return 0, err
+	}
+	// 目录项也要落盘，否则崩溃后可能只剩一个空名字
+	if err := syncDir(filepath.Dir(target)); err != nil {
 		return 0, err
 	}
 	return size, nil

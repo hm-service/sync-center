@@ -145,6 +145,11 @@ func SplitToken(entry string) (string, string, error) {
 	return body, perm, nil
 }
 
+// DataDirFromEnv 只读取数据目录，供不校验服务端密钥的 gc 子命令使用。
+func DataDirFromEnv() string {
+	return envOr("DATA_DIR", "/data")
+}
+
 func envOr(key, fallback string) string {
 	if value, ok := os.LookupEnv(key); ok && value != "" {
 		return value

@@ -95,6 +95,7 @@ async function previewFile(file: Entry) {
   }
   try {
     const response = await fetchOrLogin(url);
+    if (!response.ok) throw new Error("preview failed");
     preview.value = { kind: "text", text: await response.text() };
   } catch {
     failed.value = true;
@@ -107,7 +108,10 @@ async function boot() {
   const namespace = params.get("ns");
   if (namespace) await selectNamespace(namespace);
   const seq = params.get("seq");
-  if (seq) await selectSnapshot(Number(seq));
+  if (seq) {
+    const value = Number(seq);
+    if (Number.isInteger(value) && value > 0) await selectSnapshot(value);
+  }
   const file = params.get("file");
   if (file) {
     const entry = files.value.find((item) => item.path === file);
