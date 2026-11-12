@@ -67,7 +67,7 @@ func LoadConfig() (Config, error) {
 		return Config{}, err
 	}
 	cfg.LeaseTTL = time.Duration(leaseSeconds) * time.Second
-	gcSeconds, err := intEnv("GC_INTERVAL", 3600, 0, 86400)
+	gcSeconds, err := intEnv("GC_INTERVAL", 86400, 0, 604800)
 	if err != nil {
 		return Config{}, err
 	}

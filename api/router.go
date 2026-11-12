@@ -96,6 +96,11 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /v1/metadata", s.guarded(s.apiGate, http.HandlerFunc(s.metadata)))
 	s.mux.Handle("/v1/metadata", s.methodNotAllowed("GET, HEAD"))
 
+	// 运维接口：外部调度器用 rw token 触发一次回收。
+	// 它自己不能被暂停锁包住，否则 TryLock 永远拿不到写锁。
+	s.mux.Handle("POST /v1/gc", s.gate(s.apiGate, http.HandlerFunc(s.collectGarbage)))
+	s.mux.Handle("/v1/gc", s.methodNotAllowed("POST"))
+
 	s.mux.HandleFunc("/v1/", s.notFound)
 }
 

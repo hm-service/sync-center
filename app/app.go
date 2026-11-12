@@ -12,7 +12,8 @@ import (
 // Data 是数据目录上的存储，服务端与 gc 子命令共用。
 type Data struct {
 	dir string
-	// Guard 让清理与请求互斥：清理持写锁，请求持读锁。
+	// gcMu 保证同一时间只有一次清理；Guard 让清理与请求互斥（清理持写锁，请求持读锁）。
+	gcMu      sync.Mutex
 	Guard     sync.RWMutex
 	Snapshots *core.SnapshotStore
 	Blobs     *core.BlobStore

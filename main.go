@@ -105,9 +105,13 @@ func main() {
 func runGarbageCollector(data *app.Data, interval time.Duration, logger *slog.Logger) {
 	collect := func() {
 		started := time.Now()
-		removed, err := data.CollectGarbage(app.GarbageGrace)
+		removed, ran, err := data.TryCollectGarbage(app.GarbageGrace)
 		if err != nil {
 			logger.Error("collect garbage", "error", err)
+			return
+		}
+		if !ran {
+			// 上一次还没跑完（或正好有 API 触发），跳过本轮
 			return
 		}
 		logger.Info("garbage collected",
