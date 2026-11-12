@@ -66,11 +66,18 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /api/auth", s.gate(s.authGate, http.HandlerFunc(s.login)))
 	s.mux.Handle("/api/auth", s.methodNotAllowed("POST"))
 
-	s.mux.Handle("GET /ui/api/namespaces", s.protected(s.uiNamespaces))
-	s.mux.Handle("GET /ui/api/namespaces/{name}/snapshots", s.protected(s.uiSnapshots))
-	s.mux.Handle("GET /ui/api/namespaces/{name}/snapshots/{seq}", s.protected(s.uiSnapshot))
+	s.mux.Handle("GET /admin/api/namespaces", s.protected(s.adminNamespaces))
+	s.mux.Handle("GET /admin/api/namespaces/{name}/snapshots", s.protected(s.adminSnapshots))
+	s.mux.Handle("GET /admin/api/namespaces/{name}/snapshots/{seq}", s.protected(s.adminSnapshot))
 	// 下载不参与清理暂停：unlink 之后已打开的文件仍可读完
-	s.mux.Handle("GET /ui/api/blob/{digest}", s.gate(s.apiGate, s.requireSession(http.HandlerFunc(s.uiBlob))))
+	s.mux.Handle("GET /admin/api/blob/{digest}", s.gate(s.apiGate, s.requireSession(http.HandlerFunc(s.adminBlob))))
+
+	// 运维接口：回收是全局的，只认 GC_TOKEN，所以自己不能被暂停锁包住（TryLock 会拿不到写锁）。
+	// GC_TOKEN 为空时不注册，路径落到 404。
+	if s.app.Config.GCEnabled() {
+		s.mux.Handle("POST /admin/api/gc", s.gate(s.apiGate, http.HandlerFunc(s.collectGarbage)))
+		s.mux.Handle("/admin/api/gc", s.methodNotAllowed("POST"))
+	}
 
 	s.mux.Handle("POST /v1/lease", s.guarded(s.apiGate, http.HandlerFunc(s.createLease)))
 	s.mux.Handle("/v1/lease", s.methodNotAllowed("POST"))
@@ -96,11 +103,6 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /v1/metadata", s.guarded(s.apiGate, http.HandlerFunc(s.metadata)))
 	s.mux.Handle("/v1/metadata", s.methodNotAllowed("GET, HEAD"))
 
-	// 运维接口：外部调度器用 rw token 触发一次回收。
-	// 它自己不能被暂停锁包住，否则 TryLock 永远拿不到写锁。
-	s.mux.Handle("POST /v1/gc", s.gate(s.apiGate, http.HandlerFunc(s.collectGarbage)))
-	s.mux.Handle("/v1/gc", s.methodNotAllowed("POST"))
-
 	s.mux.HandleFunc("/v1/", s.notFound)
 }
 
@@ -123,8 +125,8 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) site(w http.ResponseWriter, r *http.Request) {
 	switch {
-	// 单页应用：/auth 与 /ui 返回同一份入口，由前端按路径决定渲染哪个视图
-	case r.URL.Path == "/auth" || r.URL.Path == "/" || r.URL.Path == "/ui":
+	// 单页应用：/auth 与 /admin 返回同一份入口，由前端按路径决定渲染哪个视图
+	case r.URL.Path == "/auth" || r.URL.Path == "/" || r.URL.Path == "/admin" || r.URL.Path == "/admin/":
 		if !allowRead(r.Method) {
 			s.methodNotAllowed("GET, HEAD")(w, r)
 			return

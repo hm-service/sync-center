@@ -25,6 +25,7 @@ stringData:
     READYZ_TOKEN: "your_readyz_token"
     AUTH_TOKEN: "your_panel_token_123"
     SESSION_SIGNING_KEY: "your_session_signing_key_0123456789abcd"
+    GC_TOKEN: "your_gc_token_0123456"
 
 ---
 apiVersion: v1

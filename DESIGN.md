@@ -107,7 +107,7 @@ blob 不压缩。传输压缩由 HTTP 层处理。
 
 `/v1` 下的接口要求 `Authorization: Bearer <token>`。`GET` 与 `HEAD` 接口对 `r` 和 `rw` 都可用，其余接口要求 `rw`。错误响应为 `{"error":"<code>","message":"<text>"}`。
 
-监听端口上的 `/livez`、`/readyz` 不要求 namespace token，供编排系统探测；`/ui` 与 `/ui/api/*` 使用面板会话，与 namespace token 无关，见第 9 节。
+监听端口上的 `/livez`、`/readyz` 不要求 namespace token，供编排系统探测；`/admin` 与 `/admin/api/*` 使用面板会话，与 namespace token 无关，见第 9 节。唯一例外是 `/admin/api/gc`：回收是全局操作，只认 `GC_TOKEN`。
 
 请求体与响应体的字段统一使用 camelCase。
 
@@ -154,9 +154,9 @@ blob 不压缩。传输压缩由 HTTP 层处理。
 |GET|`/readyz`|数据目录可读写返回 200，否则 503；`READYZ_TOKEN` 非空时要求 `?token=`|
 |GET|`/auth`|单页应用的登录视图，不需要会话|
 |POST|`/api/auth`|body `{token}`；成功 200 并下发 30 天会话 cookie，失败 401；登录并发独立配额 2，排队超过 10 秒返回 503|
-|GET|`/ui`|只读浏览页面，需要会话，未登录跳转 `/auth`|
-|GET|`/ui/api/*`|页面使用的只读接口，需要会话|
-|POST|`/v1/gc`|用 rw token 触发一次回收；200 `{removed, durationMs}`，回收进行中 423|
+|GET|`/admin`|只读浏览页面，需要会话，未登录跳转 `/auth`|
+|GET|`/admin/api/*`|页面使用的只读接口，需要会话|
+|POST|`/admin/api/gc`|用 `GC_TOKEN` 触发一次回收；200 `{removed, durationMs}`，回收进行中 423，`GC_TOKEN` 为空时该路径不存在|
 
 ### 元信息
 
@@ -211,7 +211,7 @@ blob 不压缩。传输压缩由 HTTP 层处理。
 
 ## 8. 垃圾回收
 
-服务按 `GC_INTERVAL` 定时回收（默认 86400 秒，0 表示不自动回收），启动后先跑一次。也可以用 `POST /v1/gc` 手动触发；回收正在进行时再触发返回 423。处理两类对象：不再被任何存活快照引用的 blob，以及未完成的临时写入。
+服务按 `GC_INTERVAL` 定时回收（默认 86400 秒，0 表示不自动回收），启动后先跑一次。也可以用 `POST /admin/api/gc` 手动触发；回收正在进行时再触发返回 423。处理两类对象：不再被任何存活快照引用的 blob，以及未完成的临时写入。
 
 候选来自 `blobs/` 目录中的文件，与各 namespace 存活快照的 manifest 汇总出的引用集合求差。清理持写锁，请求持读锁，因此清理期间租约、快照、元信息与面板接口会排队等待，通常只有毫秒级。blob 传输与登录不参与：前者耗时长且不受影响（已打开的文件 unlink 后仍可读完），后者恒定耗时 1 秒。
 
@@ -239,6 +239,12 @@ blob 不压缩。传输压缩由 HTTP 层处理。
 - 校验先验签名再验过期；登录成功与失败都至少耗时 1 秒，避免用响应时间区分口令。
 - 会话是无状态的，无法单个吊销；轮换 `SESSION_SIGNING_KEY` 会让所有会话失效。
 
+回收接口：
+
+- 回收跨所有 namespace，任何 namespace token 都无权触发，因此单独配置 `GC_TOKEN`。
+- `GC_TOKEN` 是随机串，启动时折叠成 `sha256` 摘要，运行期只保留摘要，请求时按常量时间比较。
+- 留空表示不开放这个接口，路径不注册；面板会话同样不能调用它。
+
 ## 10. 配置
 
 监听地址与数据目录通过环境变量提供，namespace 与 token 通过配置文件提供。
@@ -253,10 +259,11 @@ blob 不压缩。传输压缩由 HTTP 层处理。
 |AUTH_TOKEN|无默认值|面板访问口令，16-128 位字母、数字、下划线；不配置拒绝启动|
 |SESSION_SIGNING_KEY|无默认值|会话签名密钥，32-128 位字母、数字、下划线；不配置拒绝启动|
 |TRUSTED_PROXIES|127.0.0.1/32,::1/128|逗号分隔的 CIDR；只有直连对端落在其中才采信 `X-Forwarded-For` 与 `X-Real-IP`|
-|MAX_API_CONCURRENCY|128|`/v1` 与 `/ui/api` 的并发上限|
+|MAX_API_CONCURRENCY|128|`/v1` 与 `/admin/api` 的并发上限|
 |MAX_STATIC_CONCURRENCY|64|页面与静态资源的并发上限|
 |LEASE_TTL|60|租约有效期，单位秒，1-86400|
-|GC_INTERVAL|86400|自动回收间隔，单位秒，0-604800；0 表示不自动回收，只响应 `POST /v1/gc`|
+|GC_INTERVAL|86400|自动回收间隔，单位秒，0-604800；0 表示不自动回收，只响应 `POST /admin/api/gc`|
+|GC_TOKEN|空|非空时开放 `POST /admin/api/gc`，16-128 位字母、数字、下划线|
 
 配置文件为 YAML：
 

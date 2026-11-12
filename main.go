@@ -48,6 +48,10 @@ func main() {
 	os.Unsetenv("READYZ_TOKEN")
 	os.Unsetenv("AUTH_TOKEN")
 	os.Unsetenv("SESSION_SIGNING_KEY")
+	os.Unsetenv("GC_TOKEN")
+	if !config.GCEnabled() {
+		logger.Info("gc api disabled", "reason", "GC_TOKEN is empty")
+	}
 
 	application, err := app.New(config)
 	if err != nil {

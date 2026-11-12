@@ -1,6 +1,7 @@
 package core
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"net/netip"
 	"os"
@@ -34,6 +35,7 @@ type Config struct {
 	Port           int
 	DataDir        string
 	ReadyToken     string
+	GCTokenHash    [sha256.Size]byte
 	AuthHash       string
 	SessionKey     []byte
 	MaxAPI         int
@@ -89,6 +91,15 @@ func LoadConfig() (Config, error) {
 	}
 	cfg.SessionKey = []byte(signingKey)
 
+	// GC_TOKEN 可选：留空表示不开放按需回收，只保留 GC_INTERVAL 的定时回收
+	gcToken, err := optionalSecretEnv("GC_TOKEN", 16, 128)
+	if err != nil {
+		return Config{}, err
+	}
+	if gcToken != "" {
+		cfg.GCTokenHash = Digest(gcToken)
+	}
+
 	path := envOr("CONFIG_FILE", filepath.Join(cfg.DataDir, "config.yaml"))
 	namespaces, err := loadNamespaces(path)
 	if err != nil {
@@ -96,6 +107,11 @@ func LoadConfig() (Config, error) {
 	}
 	cfg.Namespaces = namespaces
 	return cfg, nil
+}
+
+// GCEnabled 报告 GC_TOKEN 是否配置；未配置时 /admin/api/gc 不注册。
+func (c Config) GCEnabled() bool {
+	return c.GCTokenHash != [sha256.Size]byte{}
 }
 
 func loadNamespaces(path string) ([]Namespace, error) {
@@ -165,16 +181,35 @@ func envOr(key, fallback string) string {
 
 func secretEnv(key string, minLen, maxLen int) (string, error) {
 	value := os.Getenv(key)
+	if err := checkSecret(key, value, minLen, maxLen); err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+// optionalSecretEnv 允许留空，留空表示对应能力不启用；非空时格式要求与 secretEnv 相同。
+func optionalSecretEnv(key string, minLen, maxLen int) (string, error) {
+	value := os.Getenv(key)
+	if value == "" {
+		return "", nil
+	}
+	if err := checkSecret(key, value, minLen, maxLen); err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+func checkSecret(key, value string, minLen, maxLen int) error {
 	if len(value) < minLen || len(value) > maxLen {
-		return "", fmt.Errorf("%s must be %d-%d characters long", key, minLen, maxLen)
+		return fmt.Errorf("%s must be %d-%d characters long", key, minLen, maxLen)
 	}
 	for _, r := range value {
 		valid := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_'
 		if !valid {
-			return "", fmt.Errorf("%s may only contain letters, digits and underscores", key)
+			return fmt.Errorf("%s may only contain letters, digits and underscores", key)
 		}
 	}
-	return value, nil
+	return nil
 }
 
 func prefixEnv(key, fallback string) ([]netip.Prefix, error) {

@@ -7,9 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"time"
 
-	"sync-center/app"
 	"sync-center/core"
 	"sync-center/httpx"
 )
@@ -31,29 +29,6 @@ type snapshotRequest struct {
 	LeaseID  string          `json:"leaseId"`
 	Parent   *int64          `json:"parent"`
 	Manifest json.RawMessage `json:"manifest"`
-}
-
-// collectGarbage 按需触发一次回收；正在回收时返回 423，不排队。
-func (s *Server) collectGarbage(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.require(w, r, true); !ok {
-		return
-	}
-	started := time.Now()
-	removed, ran, err := s.app.TryCollectGarbage(app.GarbageGrace)
-	if err != nil {
-		s.logger.Error("collect garbage", "error", err)
-		s.fail(w, r, http.StatusInternalServerError, "internal", "error.internal")
-		return
-	}
-	if !ran {
-		s.fail(w, r, http.StatusLocked, "gc_running", "error.gc-running")
-		return
-	}
-	s.logger.Info("garbage collected", "removed", removed)
-	httpx.JSON(w, http.StatusOK, map[string]any{
-		"removed":    removed,
-		"durationMs": time.Since(started).Milliseconds(),
-	})
 }
 
 func (s *Server) createLease(w http.ResponseWriter, r *http.Request) {

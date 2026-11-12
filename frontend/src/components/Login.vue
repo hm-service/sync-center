@@ -25,7 +25,7 @@ async function submit() {
       note.value = t("ui.login-failed", { status: response.status });
       return;
     }
-    window.dispatchEvent(new CustomEvent("app:navigate", { detail: "/ui" }));
+    window.dispatchEvent(new CustomEvent("app:navigate", { detail: "/admin" }));
   } catch {
     note.value = t("ui.login-offline");
   } finally {

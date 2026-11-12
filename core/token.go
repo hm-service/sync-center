@@ -5,6 +5,11 @@ import (
 	"fmt"
 )
 
+// Digest 把明文 token 折叠成定长摘要，运行期只保留摘要。
+func Digest(token string) [sha256.Size]byte {
+	return sha256.Sum256([]byte(token))
+}
+
 type Principal struct {
 	Namespace string
 	CanWrite  bool
@@ -23,7 +28,7 @@ func NewTokenIndex(namespaces []Namespace) (*TokenIndex, error) {
 			if err != nil {
 				return nil, err
 			}
-			digest := sha256.Sum256([]byte(body))
+			digest := Digest(body)
 			if previous, ok := index[digest]; ok {
 				if previous.Namespace != namespace.Name {
 					return nil, fmt.Errorf("token assigned to multiple namespaces")
@@ -37,6 +42,6 @@ func NewTokenIndex(namespaces []Namespace) (*TokenIndex, error) {
 }
 
 func (t *TokenIndex) Lookup(token string) (Principal, bool) {
-	principal, ok := t.index[sha256.Sum256([]byte(token))]
+	principal, ok := t.index[Digest(token)]
 	return principal, ok
 }

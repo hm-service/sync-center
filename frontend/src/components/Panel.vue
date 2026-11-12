@@ -30,7 +30,7 @@ function timeOf(seconds: number): string {
 
 async function loadNamespaces() {
   try {
-    namespaces.value = await api<Namespace[]>("/ui/api/namespaces");
+    namespaces.value = await api<Namespace[]>("/admin/api/namespaces");
   } catch {
     failed.value = true;
     return;
@@ -47,7 +47,7 @@ async function selectNamespace(name: string) {
   try {
     // 服务端只保留最近若干快照，这里取全部并在界面上区分新旧
     const data = await api<{ namespace: string; snapshots: SnapshotMeta[] }>(
-      "/ui/api/namespaces/" + encodeURIComponent(name) + "/snapshots?limit=100",
+      "/admin/api/namespaces/" + encodeURIComponent(name) + "/snapshots?limit=100",
     );
     snapshots.value = data.snapshots;
   } catch {
@@ -63,7 +63,7 @@ async function selectSnapshot(seq: number) {
   preview.value = null;
   try {
     const data = await api<Snapshot>(
-      "/ui/api/namespaces/" + encodeURIComponent(activeNamespace.value) + "/snapshots/" + seq,
+      "/admin/api/namespaces/" + encodeURIComponent(activeNamespace.value) + "/snapshots/" + seq,
     );
     files.value = data.manifest.files;
   } catch {
@@ -73,7 +73,7 @@ async function selectSnapshot(seq: number) {
 
 async function previewFile(file: Entry) {
   activeFile.value = file.path;
-  const url = "/ui/api/blob/" + file.hash + "?name=" + encodeURIComponent(file.path);
+  const url = "/admin/api/blob/" + file.hash + "?name=" + encodeURIComponent(file.path);
 
   if (file.size > previewLimit) {
     preview.value = {
