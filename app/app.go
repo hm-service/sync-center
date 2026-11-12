@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"sync"
 
@@ -83,10 +84,5 @@ func New(config core.Config) (*App, error) {
 }
 
 func (a *App) HasNamespace(name string) bool {
-	for _, candidate := range a.Namespaces {
-		if candidate == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(a.Namespaces, name)
 }

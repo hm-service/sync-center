@@ -60,7 +60,7 @@ func T(lang, key string, args ...any) string {
 
 // Parse 从 Accept-Language 里挑出支持的语言，认不出时回退到英文。
 func Parse(header string) string {
-	for _, part := range strings.Split(header, ",") {
+	for part := range strings.SplitSeq(header, ",") {
 		tag := strings.ToLower(strings.TrimSpace(strings.SplitN(part, ";", 2)[0]))
 		switch {
 		case strings.HasPrefix(tag, "zh"):

@@ -85,8 +85,7 @@ func (s *Server) putBlob(w http.ResponseWriter, r *http.Request) {
 		// 已存在也要把请求体读完，否则这条连接无法复用；但同样受大小上限约束
 		r.Body = http.MaxBytesReader(w, r.Body, core.MaxBlobSize+1)
 		if _, err := io.Copy(io.Discard, r.Body); err != nil {
-			var tooLarge *http.MaxBytesError
-			if errors.As(err, &tooLarge) {
+			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 				s.fail(w, r, http.StatusRequestEntityTooLarge, "too_large", "error.too-large")
 				return
 			}
@@ -154,8 +153,7 @@ func (s *Server) createSnapshot(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSnapshotBody)
 	var request snapshotRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			s.fail(w, r, http.StatusRequestEntityTooLarge, "too_large", "error.too-large")
 			return
 		}

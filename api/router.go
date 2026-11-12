@@ -136,7 +136,7 @@ func (s *Server) site(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.page(w, r, "index.html")
-	case strings.HasPrefix(r.URL.Path, "/assets/"):
+	case strings.HasPrefix(r.URL.Path, "/assets/") || r.URL.Path == "/favicon.svg":
 		if !allowRead(r.Method) {
 			s.methodNotAllowed("GET, HEAD")(w, r)
 			return
@@ -166,6 +166,9 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request, name string) {
 
 // fail 输出本地化后的错误；错误码保持英文，供客户端做分支判断。
 func (s *Server) fail(w http.ResponseWriter, r *http.Request, status int, code, key string, args ...any) {
+	if status == http.StatusUnauthorized {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="sync-center"`)
+	}
 	httpx.Fail(w, status, code, i18n.T(language(r), key, args...))
 }
 

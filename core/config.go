@@ -218,7 +218,7 @@ func prefixEnv(key, fallback string) ([]netip.Prefix, error) {
 		raw = fallback
 	}
 	var prefixes []netip.Prefix
-	for _, item := range strings.Split(raw, ",") {
+	for item := range strings.SplitSeq(raw, ",") {
 		item = strings.TrimSpace(item)
 		if item == "" {
 			continue

@@ -111,4 +111,3 @@ func (s *Sessions) sign(payload string) []byte {
 	mac.Write([]byte("v1|" + payload))
 	return mac.Sum(nil)
 }
-

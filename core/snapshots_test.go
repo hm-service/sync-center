@@ -36,7 +36,8 @@ func testManifest(paths ...string) Manifest {
 	return Manifest{Files: files}
 }
 
-func seqPtr(value int64) *int64 { return &value }
+//go:fix inline
+func seqPtr(value int64) *int64 { return new(value) }
 
 func TestCommitCreatesVersions(t *testing.T) {
 	store := testStore(t)
@@ -87,7 +88,7 @@ func TestCommitSkipsUnchangedManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("commit: %v", err)
 	}
-	again, err := store.Commit("default", seqPtr(seq), manifest, 3)
+	again, err := store.Commit("default", new(seq), manifest, 3)
 	if err != nil {
 		t.Fatalf("commit: %v", err)
 	}
@@ -106,12 +107,12 @@ func TestCommitSkipsUnchangedManifest(t *testing.T) {
 func TestCommitPrunesOldVersions(t *testing.T) {
 	store := testStore(t)
 	var parent *int64
-	for i := 0; i < KeepVersions+3; i++ {
+	for i := range KeepVersions + 3 {
 		seq, err := store.Commit("default", parent, testManifest(fmt.Sprintf("f%d.txt", i)), 1)
 		if err != nil {
 			t.Fatalf("commit %d: %v", i, err)
 		}
-		parent = seqPtr(seq)
+		parent = new(seq)
 	}
 	metas, _, err := store.List("default", 0)
 	if err != nil {

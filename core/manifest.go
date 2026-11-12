@@ -93,7 +93,7 @@ func validatePath(path string) error {
 			return fmt.Errorf("invalid path %q", path)
 		}
 	}
-	for _, segment := range strings.Split(path, "/") {
+	for segment := range strings.SplitSeq(path, "/") {
 		if segment == "" || segment == "." || segment == ".." {
 			return fmt.Errorf("invalid path %q", path)
 		}
