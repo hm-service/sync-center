@@ -39,6 +39,7 @@ type Config struct {
 	MaxAPI         int
 	MaxStatic      int
 	LeaseTTL       time.Duration
+	GCInterval     time.Duration
 	TrustedProxies []netip.Prefix
 	Namespaces     []Namespace
 }
@@ -66,6 +67,11 @@ func LoadConfig() (Config, error) {
 		return Config{}, err
 	}
 	cfg.LeaseTTL = time.Duration(leaseSeconds) * time.Second
+	gcSeconds, err := intEnv("GC_INTERVAL", 3600, 0, 86400)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.GCInterval = time.Duration(gcSeconds) * time.Second
 	if cfg.TrustedProxies, err = prefixEnv("TRUSTED_PROXIES", "127.0.0.1/32,::1/128"); err != nil {
 		return Config{}, err
 	}

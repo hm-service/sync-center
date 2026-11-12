@@ -4,13 +4,16 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"sync"
 
 	"sync-center/core"
 )
 
 // Data 是数据目录上的存储，服务端与 gc 子命令共用。
 type Data struct {
-	dir       string
+	dir string
+	// Guard 让清理与请求互斥：清理持写锁，请求持读锁。
+	Guard     sync.RWMutex
 	Snapshots *core.SnapshotStore
 	Blobs     *core.BlobStore
 }

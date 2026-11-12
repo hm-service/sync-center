@@ -69,15 +69,16 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /ui/api/namespaces", s.protected(s.uiNamespaces))
 	s.mux.Handle("GET /ui/api/namespaces/{name}/snapshots", s.protected(s.uiSnapshots))
 	s.mux.Handle("GET /ui/api/namespaces/{name}/snapshots/{seq}", s.protected(s.uiSnapshot))
-	s.mux.Handle("GET /ui/api/blob/{digest}", s.protected(s.uiBlob))
+	// 下载不参与清理暂停：unlink 之后已打开的文件仍可读完
+	s.mux.Handle("GET /ui/api/blob/{digest}", s.gate(s.apiGate, s.requireSession(http.HandlerFunc(s.uiBlob))))
 
-	s.mux.Handle("POST /v1/lease", s.gate(s.apiGate, http.HandlerFunc(s.createLease)))
+	s.mux.Handle("POST /v1/lease", s.guarded(s.apiGate, http.HandlerFunc(s.createLease)))
 	s.mux.Handle("/v1/lease", s.methodNotAllowed("POST"))
 
-	s.mux.Handle("POST /v1/lease/{id}/heartbeat", s.gate(s.apiGate, http.HandlerFunc(s.heartbeat)))
+	s.mux.Handle("POST /v1/lease/{id}/heartbeat", s.guarded(s.apiGate, http.HandlerFunc(s.heartbeat)))
 	s.mux.Handle("/v1/lease/{id}/heartbeat", s.methodNotAllowed("POST"))
 
-	s.mux.Handle("DELETE /v1/lease/{id}", s.gate(s.apiGate, http.HandlerFunc(s.releaseLease)))
+	s.mux.Handle("DELETE /v1/lease/{id}", s.guarded(s.apiGate, http.HandlerFunc(s.releaseLease)))
 	s.mux.Handle("/v1/lease/{id}", s.methodNotAllowed("DELETE"))
 
 	s.mux.Handle("PUT /v1/blobs/{hash}", s.gate(s.apiGate, http.HandlerFunc(s.putBlob)))
@@ -85,14 +86,14 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /v1/blobs/{hash}", s.gate(s.apiGate, http.HandlerFunc(s.getBlob)))
 	s.mux.Handle("/v1/blobs/{hash}", s.methodNotAllowed("GET, HEAD, PUT"))
 
-	s.mux.Handle("POST /v1/snapshots", s.gate(s.apiGate, http.HandlerFunc(s.createSnapshot)))
-	s.mux.Handle("GET /v1/snapshots", s.gate(s.apiGate, http.HandlerFunc(s.listSnapshots)))
+	s.mux.Handle("POST /v1/snapshots", s.guarded(s.apiGate, http.HandlerFunc(s.createSnapshot)))
+	s.mux.Handle("GET /v1/snapshots", s.guarded(s.apiGate, http.HandlerFunc(s.listSnapshots)))
 	s.mux.Handle("/v1/snapshots", s.methodNotAllowed("GET, HEAD, POST"))
 
-	s.mux.Handle("GET /v1/snapshots/{seq}", s.gate(s.apiGate, http.HandlerFunc(s.getSnapshot)))
+	s.mux.Handle("GET /v1/snapshots/{seq}", s.guarded(s.apiGate, http.HandlerFunc(s.getSnapshot)))
 	s.mux.Handle("/v1/snapshots/{seq}", s.methodNotAllowed("GET, HEAD"))
 
-	s.mux.Handle("GET /v1/metadata", s.gate(s.apiGate, http.HandlerFunc(s.metadata)))
+	s.mux.Handle("GET /v1/metadata", s.guarded(s.apiGate, http.HandlerFunc(s.metadata)))
 	s.mux.Handle("/v1/metadata", s.methodNotAllowed("GET, HEAD"))
 
 	s.mux.HandleFunc("/v1/", s.notFound)
@@ -177,7 +178,17 @@ func (s *Server) notFound(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) protected(handler http.HandlerFunc) http.Handler {
-	return s.gate(s.apiGate, s.requireSession(handler))
+	return s.guarded(s.apiGate, s.requireSession(handler))
+}
+
+// guarded 在并发闸门之后再加一道暂停读锁：清理期间这些请求排队，通常只有毫秒级。
+// blob 传输与登录不参与，前者耗时长且不会被清理影响，后者恒定耗时 1 秒。
+func (s *Server) guarded(sem chan struct{}, next http.Handler) http.Handler {
+	return s.gate(sem, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.app.Guard.RLock()
+		defer s.app.Guard.RUnlock()
+		next.ServeHTTP(w, r)
+	}))
 }
 
 func (s *Server) gate(sem chan struct{}, next http.Handler) http.Handler {

@@ -55,6 +55,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	if config.GCInterval > 0 {
+		go runGarbageCollector(application.Data, config.GCInterval, logger)
+	}
+
 	addr := net.JoinHostPort(config.Host, strconv.Itoa(config.Port))
 	server := &http.Server{
 		Addr:              addr,
@@ -94,4 +98,27 @@ func main() {
 	}
 
 	logger.Info("server shutdown", "stop_at", time.Now().Format(time.RFC3339))
+}
+
+// runGarbageCollector 启动时先清理一次，之后按间隔重复。
+// 清理持写锁，期间的请求排队等待，通常只有毫秒级。
+func runGarbageCollector(data *app.Data, interval time.Duration, logger *slog.Logger) {
+	collect := func() {
+		started := time.Now()
+		removed, err := data.CollectGarbage(app.GarbageGrace)
+		if err != nil {
+			logger.Error("collect garbage", "error", err)
+			return
+		}
+		logger.Info("garbage collected",
+			"removed", removed,
+			"duration_ms", time.Since(started).Milliseconds(),
+		)
+	}
+	collect()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for range ticker.C {
+		collect()
+	}
 }

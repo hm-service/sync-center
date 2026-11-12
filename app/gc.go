@@ -23,6 +23,10 @@ func (d *Data) CollectGarbage(grace time.Duration) (int, error) {
 		return 0, err
 	}
 
+	// 清理期间暂停请求，避免引用集在扫描与删除之间变化
+	d.Guard.Lock()
+	defer d.Guard.Unlock()
+
 	lock, err := d.Snapshots.LockAll()
 	if err != nil {
 		return 0, err
